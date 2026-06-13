@@ -107,12 +107,14 @@ function RuleRow({
 }) {
   return (
     <li className={`rule-row ${rule.enabled ? "" : "rule-disabled"}`}>
-      <input
-        type="checkbox"
-        className="rule-toggle"
-        checked={rule.enabled}
-        onChange={(e) => onToggle(e.target.checked)}
-      />
+      <label className="switch" title={rule.enabled ? "Enabled" : "Disabled"}>
+        <input
+          type="checkbox"
+          checked={rule.enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+        <span className="switch-slider" />
+      </label>
       <div className="rule-info" onClick={onEdit}>
         <span className="rule-name">{rule.name}</span>
         <span className="rule-summary">
