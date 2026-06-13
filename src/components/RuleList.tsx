@@ -1,7 +1,7 @@
-import { Play, Plus, Trash2 } from "lucide-react";
+import { Eye, Play, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useForelStore } from "../store";
-import { Rule } from "../types";
+import { PreviewResult, Rule } from "../types";
 import RuleEditor from "./RuleEditor";
 
 export default function RuleList() {
@@ -14,10 +14,13 @@ export default function RuleList() {
     deleteRule,
     toggleRule,
     runRulesNow,
+    previewRules,
   } = useForelStore();
 
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [runResult, setRunResult] = useState<string[] | null>(null);
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   const selectedFolder = folders.find((f) => f.id === selectedFolderId);
 
@@ -32,6 +35,17 @@ export default function RuleList() {
     const matched = await runRulesNow(selectedFolderId);
     setRunResult(matched);
     setTimeout(() => setRunResult(null), 4000);
+  };
+
+  const handlePreview = async () => {
+    if (!selectedFolderId) return;
+    setPreviewing(true);
+    try {
+      const result = await previewRules(selectedFolderId);
+      setPreviewResult(result);
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   if (!selectedFolderId) {
@@ -50,6 +64,14 @@ export default function RuleList() {
           <p className="rule-list-subtitle">{selectedFolder?.path}</p>
         </div>
         <div className="rule-list-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={handlePreview}
+            disabled={previewing}
+            title="Preview what rules would do"
+          >
+            <Eye size={13} /> {previewing ? "Previewing…" : "Preview"}
+          </button>
           <button className="btn btn-secondary" onClick={handleRunNow} title="Run rules now">
             <Play size={13} /> Run now
           </button>
@@ -65,6 +87,63 @@ export default function RuleList() {
             ? "No rules matched. All files are up to date."
             : `Matched: ${runResult.join(", ")}`}
         </div>
+      )}
+
+      {previewResult && (
+        <section className="preview-panel">
+          <div className="preview-header">
+            <div>
+              <h3 className="preview-title">Preview</h3>
+              <p className="preview-summary">
+                {previewResult.files_scanned} file
+                {previewResult.files_scanned !== 1 ? "s" : ""} scanned,{" "}
+                {previewResult.matches.length} file
+                {previewResult.matches.length !== 1 ? "s" : ""} with matching rules.
+              </p>
+            </div>
+            <button
+              className="preview-close"
+              type="button"
+              onClick={() => setPreviewResult(null)}
+              title="Close preview"
+            >
+              <X size={13} />
+            </button>
+          </div>
+
+          {previewResult.matches.length === 0 ? (
+            <div className="preview-empty">No files would be changed.</div>
+          ) : (
+            <div className="preview-list">
+              {previewResult.matches.map((file) => (
+                <article className="preview-file" key={file.path}>
+                  <div className="preview-file-name">{file.name || file.path}</div>
+                  <div className="preview-file-path">{file.path}</div>
+                  <div className="preview-rules">
+                    {file.rules.map((rule) => (
+                      <div className="preview-rule" key={rule.rule_id}>
+                        <div className="preview-rule-name">{rule.rule_name}</div>
+                        {rule.actions.length === 0 ? (
+                          <div className="preview-action preview-action-empty">
+                            No actions configured.
+                          </div>
+                        ) : (
+                          <ul className="preview-actions">
+                            {rule.actions.map((action, index) => (
+                              <li className="preview-action" key={`${rule.rule_id}-${index}`}>
+                                {action}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {loading ? (

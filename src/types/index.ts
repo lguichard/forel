@@ -66,6 +66,23 @@ export interface Rule {
   created_at: string;
 }
 
+export interface RulePreview {
+  rule_id: string;
+  rule_name: string;
+  actions: string[];
+}
+
+export interface FilePreview {
+  path: string;
+  name: string;
+  rules: RulePreview[];
+}
+
+export interface PreviewResult {
+  files_scanned: number;
+  matches: FilePreview[];
+}
+
 // Labels used in the UI
 export const CONDITION_KIND_LABELS: Record<ConditionKind, string> = {
   name: "Name",

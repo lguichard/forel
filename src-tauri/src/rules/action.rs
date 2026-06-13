@@ -101,6 +101,81 @@ pub fn execute(action: &Action, path: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn preview(action: &Action, path: &Path) -> Result<String> {
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+
+    Ok(match &action.kind {
+        ActionKind::MoveToFolder => {
+            let dest_dir = action
+                .params
+                .get("destination")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("Move to {}", Path::new(dest_dir).join(file_name).display())
+        }
+        ActionKind::CopyToFolder => {
+            let dest_dir = action
+                .params
+                .get("destination")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("Copy to {}", Path::new(dest_dir).join(file_name).display())
+        }
+        ActionKind::Rename => {
+            let pattern = action
+                .params
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let new_name = apply_rename_pattern(pattern, path)?;
+            format!("Rename to {}", new_name)
+        }
+        ActionKind::MoveToTrash => "Move to Trash".to_string(),
+        ActionKind::Delete => "Delete permanently".to_string(),
+        ActionKind::AddTag => {
+            let tag = action
+                .params
+                .get("tag")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("Add tag '{}'", tag)
+        }
+        ActionKind::RemoveTag => {
+            let tag = action
+                .params
+                .get("tag")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            format!("Remove tag '{}'", tag)
+        }
+        ActionKind::SetColorLabel => {
+            let color = action
+                .params
+                .get("color")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if color.is_empty() {
+                "Clear color label".to_string()
+            } else {
+                format!("Set color label to {}", color)
+            }
+        }
+        ActionKind::RunScript => {
+            let script = action
+                .params
+                .get("script")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let first_line = script.lines().next().unwrap_or("").trim();
+            if first_line.is_empty() {
+                "Run script".to_string()
+            } else {
+                format!("Run script: {}", first_line)
+            }
+        }
+    })
+}
+
 /// Substitutes tokens in rename patterns.
 /// Supported tokens: {name}, {extension}, {date_created}, {date_modified}
 fn apply_rename_pattern(pattern: &str, path: &Path) -> Result<String> {

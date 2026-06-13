@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import { Rule, WatchedFolder } from "../types";
+import { PreviewResult, Rule, WatchedFolder } from "../types";
 
 interface ForelState {
   folders: WatchedFolder[];
@@ -22,6 +22,7 @@ interface ForelState {
   deleteRule: (ruleId: string) => Promise<void>;
   toggleRule: (ruleId: string, enabled: boolean) => Promise<void>;
   runRulesNow: (folderId: string) => Promise<string[]>;
+  previewRules: (folderId: string) => Promise<PreviewResult>;
 }
 
 export const useForelStore = create<ForelState>((set, get) => ({
@@ -98,5 +99,9 @@ export const useForelStore = create<ForelState>((set, get) => ({
 
   runRulesNow: async (folderId) => {
     return invoke<string[]>("run_rules_now", { folderId });
+  },
+
+  previewRules: async (folderId) => {
+    return invoke<PreviewResult>("preview_rules", { folderId });
   },
 }));

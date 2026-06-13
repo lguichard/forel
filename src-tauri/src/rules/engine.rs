@@ -1,11 +1,32 @@
 use std::path::Path;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use super::{
     action, condition,
     model::{ConditionMatch, Rule},
 };
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RulePreview {
+    pub rule_id: String,
+    pub rule_name: String,
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FilePreview {
+    pub path: String,
+    pub name: String,
+    pub rules: Vec<RulePreview>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewResult {
+    pub files_scanned: usize,
+    pub matches: Vec<FilePreview>,
+}
 
 /// Evaluates all enabled rules against `path` and executes matching ones.
 /// Returns a list of rule names that matched.
@@ -26,6 +47,47 @@ pub fn evaluate_file(path: &Path, rules: &[Rule]) -> Vec<String> {
     }
 
     matched
+}
+
+pub fn preview_file(path: &Path, rules: &[Rule]) -> Option<FilePreview> {
+    let mut matched_rules = Vec::new();
+
+    for rule in rules.iter().filter(|r| r.enabled) {
+        match rule_matches(rule, path) {
+            Ok(true) => {
+                let mut sorted = rule.actions.clone();
+                sorted.sort_by_key(|a| a.position);
+                let actions = sorted
+                    .iter()
+                    .map(|act| action::preview(act, path).unwrap_or_else(|e| e.to_string()))
+                    .collect();
+
+                matched_rules.push(RulePreview {
+                    rule_id: rule.id.clone(),
+                    rule_name: rule.name.clone(),
+                    actions,
+                });
+            }
+            Ok(false) => {}
+            Err(e) => {
+                log::warn!("error previewing rule '{}' on {:?}: {}", rule.name, path, e);
+            }
+        }
+    }
+
+    if matched_rules.is_empty() {
+        return None;
+    }
+
+    Some(FilePreview {
+        path: path.to_string_lossy().to_string(),
+        name: path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string(),
+        rules: matched_rules,
+    })
 }
 
 fn rule_matches(rule: &Rule, path: &Path) -> Result<bool> {
@@ -66,10 +128,11 @@ fn execute_actions(rule: &Rule, path: &Path) {
 mod tests {
     use std::{fs, path::PathBuf};
 
+    use serde_json::json;
     use uuid::Uuid;
 
     use super::*;
-    use crate::rules::model::{Condition, ConditionKind, Operator};
+    use crate::rules::model::{Action, ActionKind, Condition, ConditionKind, Operator};
 
     struct TestDir {
         path: PathBuf,
@@ -124,6 +187,16 @@ mod tests {
         }
     }
 
+    fn action(kind: ActionKind, params: serde_json::Value, position: i64) -> Action {
+        Action {
+            id: Uuid::new_v4().to_string(),
+            rule_id: "rule".to_string(),
+            kind,
+            params,
+            position,
+        }
+    }
+
     #[test]
     fn evaluate_file_matches_enabled_rules_with_all_or_any_conditions() {
         let dir = TestDir::new();
@@ -159,6 +232,42 @@ mod tests {
         assert_eq!(
             evaluate_file(&file, &rules),
             vec!["all matched".to_string(), "any matched".to_string()]
+        );
+    }
+
+    #[test]
+    fn preview_file_returns_ordered_actions_without_executing_them() {
+        let dir = TestDir::new();
+        let file = dir.file("invoice.pdf", "paid");
+        let destination = dir.path.join("Processed");
+        fs::create_dir(&destination).expect("create destination");
+        let mut matching_rule = rule(
+            "archive invoice",
+            true,
+            ConditionMatch::All,
+            vec![condition(ConditionKind::Extension, Operator::Is, "pdf")],
+        );
+        matching_rule.actions = vec![
+            action(ActionKind::AddTag, json!({ "tag": "Reviewed" }), 2),
+            action(
+                ActionKind::MoveToFolder,
+                json!({ "destination": destination.to_string_lossy() }),
+                1,
+            ),
+        ];
+
+        let preview = preview_file(&file, &[matching_rule]).expect("preview should match");
+
+        assert!(file.exists());
+        assert!(!destination.join("invoice.pdf").exists());
+        assert_eq!(preview.name, "invoice.pdf");
+        assert_eq!(preview.rules[0].rule_name, "archive invoice");
+        assert_eq!(
+            preview.rules[0].actions,
+            vec![
+                format!("Move to {}", destination.join("invoice.pdf").display()),
+                "Add tag 'Reviewed'".to_string(),
+            ]
         );
     }
 }

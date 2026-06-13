@@ -76,6 +76,7 @@ pub fn run() {
             commands::delete_rule,
             commands::toggle_rule,
             commands::run_rules_now,
+            commands::preview_rules,
             commands::get_macos_tags,
             commands::add_custom_tag,
         ])

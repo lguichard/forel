@@ -2,7 +2,10 @@ use tauri::{AppHandle, State};
 
 use crate::{
     db,
-    rules::model::{Rule, WatchedFolder},
+    rules::{
+        engine::PreviewResult,
+        model::{Rule, WatchedFolder},
+    },
     state::AppState,
     tray,
     watcher::WatcherCmd,
@@ -168,6 +171,39 @@ pub fn run_rules_now(folder_id: String, state: State<AppState>) -> Result<Vec<St
     }
 
     Ok(all_matched)
+}
+
+/// Simulates rule evaluation for all files in the folder without running actions.
+#[tauri::command]
+pub fn preview_rules(folder_id: String, state: State<AppState>) -> Result<PreviewResult, String> {
+    let (folder_path, rules) = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let path: String = conn
+            .query_row(
+                "SELECT path FROM watched_folders WHERE id=?1",
+                rusqlite::params![folder_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let rules = db::list_rules(&conn, &folder_id).map_err(|e| e.to_string())?;
+        (path, rules)
+    };
+
+    let mut result = PreviewResult {
+        files_scanned: 0,
+        matches: Vec::new(),
+    };
+
+    let entries = std::fs::read_dir(&folder_path).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        result.files_scanned += 1;
+        if let Some(preview) = crate::rules::engine::preview_file(&path, &rules) {
+            result.matches.push(preview);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Returns the available text tags: Finder favourites + custom tags from the DB.
