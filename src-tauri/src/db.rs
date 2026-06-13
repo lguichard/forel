@@ -1,0 +1,349 @@
+use anyhow::{Context, Result};
+use rusqlite::{params, Connection};
+
+use crate::rules::model::{
+    Action, ActionKind, Condition, ConditionKind, ConditionMatch, Operator, Rule, WatchedFolder,
+};
+
+pub fn init(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA foreign_keys=ON;
+
+         CREATE TABLE IF NOT EXISTS watched_folders (
+             id          TEXT PRIMARY KEY,
+             path        TEXT NOT NULL UNIQUE,
+             enabled     INTEGER NOT NULL DEFAULT 1,
+             created_at  TEXT NOT NULL
+         );
+
+         CREATE TABLE IF NOT EXISTS rules (
+             id               TEXT PRIMARY KEY,
+             folder_id        TEXT NOT NULL REFERENCES watched_folders(id) ON DELETE CASCADE,
+             name             TEXT NOT NULL,
+             enabled          INTEGER NOT NULL DEFAULT 1,
+             condition_match  TEXT NOT NULL DEFAULT 'all',
+             priority         INTEGER NOT NULL DEFAULT 0,
+             created_at       TEXT NOT NULL
+         );
+
+         CREATE TABLE IF NOT EXISTS conditions (
+             id        TEXT PRIMARY KEY,
+             rule_id   TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+             kind      TEXT NOT NULL,
+             operator  TEXT NOT NULL,
+             value     TEXT NOT NULL
+         );
+
+         CREATE TABLE IF NOT EXISTS actions (
+             id        TEXT PRIMARY KEY,
+             rule_id   TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+             kind      TEXT NOT NULL,
+             params    TEXT NOT NULL,
+             position  INTEGER NOT NULL DEFAULT 0
+         );",
+    )
+    .context("schema init")
+}
+
+// ---------- WatchedFolder ----------
+
+pub fn list_folders(conn: &Connection) -> Result<Vec<WatchedFolder>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, enabled, created_at FROM watched_folders ORDER BY created_at",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(WatchedFolder {
+            id: row.get(0)?,
+            path: row.get(1)?,
+            enabled: row.get::<_, i64>(2)? != 0,
+            created_at: row.get(3)?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<_>>().context("list folders")
+}
+
+pub fn insert_folder(conn: &Connection, folder: &WatchedFolder) -> Result<()> {
+    conn.execute(
+        "INSERT INTO watched_folders (id, path, enabled, created_at) VALUES (?1,?2,?3,?4)",
+        params![folder.id, folder.path, folder.enabled as i64, folder.created_at],
+    )?;
+    Ok(())
+}
+
+pub fn delete_folder(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM watched_folders WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+pub fn toggle_folder(conn: &Connection, id: &str, enabled: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE watched_folders SET enabled=?1 WHERE id=?2",
+        params![enabled as i64, id],
+    )?;
+    Ok(())
+}
+
+// ---------- Rules ----------
+
+pub fn list_all_rules_with_folder(conn: &Connection) -> Result<Vec<(WatchedFolder, Vec<Rule>)>> {
+    let folders = list_folders(conn)?;
+    let mut result = Vec::new();
+    for folder in folders {
+        let rules = list_rules(conn, &folder.id)?;
+        result.push((folder, rules));
+    }
+    Ok(result)
+}
+
+pub fn list_rules(conn: &Connection, folder_id: &str) -> Result<Vec<Rule>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_id, name, enabled, condition_match, priority, created_at
+         FROM rules WHERE folder_id=?1 ORDER BY priority, created_at",
+    )?;
+    let rule_rows = stmt.query_map(params![folder_id], |row| {
+        Ok(Rule {
+            id: row.get(0)?,
+            folder_id: row.get(1)?,
+            name: row.get(2)?,
+            enabled: row.get::<_, i64>(3)? != 0,
+            condition_match: if row.get::<_, String>(4)? == "any" {
+                ConditionMatch::Any
+            } else {
+                ConditionMatch::All
+            },
+            conditions: vec![],
+            actions: vec![],
+            priority: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    })?;
+
+    let mut rules: Vec<Rule> = rule_rows
+        .collect::<rusqlite::Result<_>>()
+        .context("list rules")?;
+
+    for rule in &mut rules {
+        rule.conditions = list_conditions(conn, &rule.id)?;
+        rule.actions = list_actions(conn, &rule.id)?;
+    }
+
+    Ok(rules)
+}
+
+pub fn insert_rule(conn: &Connection, rule: &Rule) -> Result<()> {
+    let match_str = if rule.condition_match == ConditionMatch::Any {
+        "any"
+    } else {
+        "all"
+    };
+    conn.execute(
+        "INSERT INTO rules (id, folder_id, name, enabled, condition_match, priority, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            rule.id,
+            rule.folder_id,
+            rule.name,
+            rule.enabled as i64,
+            match_str,
+            rule.priority,
+            rule.created_at
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn update_rule(conn: &Connection, rule: &Rule) -> Result<()> {
+    let match_str = if rule.condition_match == ConditionMatch::Any {
+        "any"
+    } else {
+        "all"
+    };
+    conn.execute(
+        "UPDATE rules SET name=?1, enabled=?2, condition_match=?3, priority=?4 WHERE id=?5",
+        params![
+            rule.name,
+            rule.enabled as i64,
+            match_str,
+            rule.priority,
+            rule.id
+        ],
+    )?;
+
+    // Replace conditions and actions
+    conn.execute("DELETE FROM conditions WHERE rule_id=?1", params![rule.id])?;
+    conn.execute("DELETE FROM actions WHERE rule_id=?1", params![rule.id])?;
+
+    for cond in &rule.conditions {
+        insert_condition(conn, cond)?;
+    }
+    for act in &rule.actions {
+        insert_action(conn, act)?;
+    }
+
+    Ok(())
+}
+
+pub fn delete_rule(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM rules WHERE id=?1", params![id])?;
+    Ok(())
+}
+
+pub fn toggle_rule(conn: &Connection, id: &str, enabled: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE rules SET enabled=?1 WHERE id=?2",
+        params![enabled as i64, id],
+    )?;
+    Ok(())
+}
+
+// ---------- Conditions ----------
+
+fn list_conditions(conn: &Connection, rule_id: &str) -> Result<Vec<Condition>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, rule_id, kind, operator, value FROM conditions WHERE rule_id=?1",
+    )?;
+    let rows = stmt.query_map(params![rule_id], |row| {
+        Ok(Condition {
+            id: row.get(0)?,
+            rule_id: row.get(1)?,
+            kind: parse_condition_kind(row.get::<_, String>(2)?.as_str()),
+            operator: parse_operator(row.get::<_, String>(3)?.as_str()),
+            value: row.get(4)?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<_>>().context("list conditions")
+}
+
+fn insert_condition(conn: &Connection, cond: &Condition) -> Result<()> {
+    conn.execute(
+        "INSERT INTO conditions (id, rule_id, kind, operator, value) VALUES (?1,?2,?3,?4,?5)",
+        params![
+            cond.id,
+            cond.rule_id,
+            condition_kind_to_str(&cond.kind),
+            operator_to_str(&cond.operator),
+            cond.value
+        ],
+    )?;
+    Ok(())
+}
+
+// ---------- Actions ----------
+
+fn list_actions(conn: &Connection, rule_id: &str) -> Result<Vec<Action>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, rule_id, kind, params, position FROM actions WHERE rule_id=?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![rule_id], |row| {
+        let params_str: String = row.get(3)?;
+        Ok(Action {
+            id: row.get(0)?,
+            rule_id: row.get(1)?,
+            kind: parse_action_kind(row.get::<_, String>(2)?.as_str()),
+            params: serde_json::from_str(&params_str).unwrap_or(serde_json::Value::Null),
+            position: row.get(4)?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<_>>().context("list actions")
+}
+
+fn insert_action(conn: &Connection, act: &Action) -> Result<()> {
+    conn.execute(
+        "INSERT INTO actions (id, rule_id, kind, params, position) VALUES (?1,?2,?3,?4,?5)",
+        params![
+            act.id,
+            act.rule_id,
+            action_kind_to_str(&act.kind),
+            act.params.to_string(),
+            act.position
+        ],
+    )?;
+    Ok(())
+}
+
+// ---------- String converters ----------
+
+fn condition_kind_to_str(k: &ConditionKind) -> &'static str {
+    match k {
+        ConditionKind::Name => "name",
+        ConditionKind::Extension => "extension",
+        ConditionKind::Kind => "kind",
+        ConditionKind::SizeBytes => "size_bytes",
+        ConditionKind::DateCreated => "date_created",
+        ConditionKind::DateModified => "date_modified",
+        ConditionKind::Tags => "tags",
+        ConditionKind::Contents => "contents",
+    }
+}
+
+fn parse_condition_kind(s: &str) -> ConditionKind {
+    match s {
+        "extension" => ConditionKind::Extension,
+        "kind" => ConditionKind::Kind,
+        "size_bytes" => ConditionKind::SizeBytes,
+        "date_created" => ConditionKind::DateCreated,
+        "date_modified" => ConditionKind::DateModified,
+        "tags" => ConditionKind::Tags,
+        "contents" => ConditionKind::Contents,
+        _ => ConditionKind::Name,
+    }
+}
+
+fn operator_to_str(op: &Operator) -> &'static str {
+    match op {
+        Operator::Is => "is",
+        Operator::IsNot => "is_not",
+        Operator::Contains => "contains",
+        Operator::DoesNotContain => "does_not_contain",
+        Operator::StartsWith => "starts_with",
+        Operator::EndsWith => "ends_with",
+        Operator::MatchesRegex => "matches_regex",
+        Operator::GreaterThan => "greater_than",
+        Operator::LessThan => "less_than",
+        Operator::Before => "before",
+        Operator::After => "after",
+    }
+}
+
+fn parse_operator(s: &str) -> Operator {
+    match s {
+        "is_not" => Operator::IsNot,
+        "contains" => Operator::Contains,
+        "does_not_contain" => Operator::DoesNotContain,
+        "starts_with" => Operator::StartsWith,
+        "ends_with" => Operator::EndsWith,
+        "matches_regex" => Operator::MatchesRegex,
+        "greater_than" => Operator::GreaterThan,
+        "less_than" => Operator::LessThan,
+        "before" => Operator::Before,
+        "after" => Operator::After,
+        _ => Operator::Is,
+    }
+}
+
+fn action_kind_to_str(k: &ActionKind) -> &'static str {
+    match k {
+        ActionKind::MoveToFolder => "move_to_folder",
+        ActionKind::CopyToFolder => "copy_to_folder",
+        ActionKind::Rename => "rename",
+        ActionKind::MoveToTrash => "move_to_trash",
+        ActionKind::Delete => "delete",
+        ActionKind::AddTag => "add_tag",
+        ActionKind::RemoveTag => "remove_tag",
+        ActionKind::RunScript => "run_script",
+    }
+}
+
+fn parse_action_kind(s: &str) -> ActionKind {
+    match s {
+        "copy_to_folder" => ActionKind::CopyToFolder,
+        "rename" => ActionKind::Rename,
+        "move_to_trash" => ActionKind::MoveToTrash,
+        "delete" => ActionKind::Delete,
+        "add_tag" => ActionKind::AddTag,
+        "remove_tag" => ActionKind::RemoveTag,
+        "run_script" => ActionKind::RunScript,
+        _ => ActionKind::MoveToFolder,
+    }
+}
