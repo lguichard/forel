@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, Minus, Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForelStore } from "../store";
 import {
   ACTION_KIND_LABELS,
@@ -379,7 +379,7 @@ function ActionRow({
         <div className="action-folder-picker">
           <input
             className="action-value"
-            value={action.params.destination ?? ""}
+            value={(action.params.destination as string | undefined) ?? ""}
             placeholder="Destination folder"
             readOnly
           />
@@ -392,7 +392,7 @@ function ActionRow({
       {needsPattern && (
         <input
           className="action-value"
-          value={action.params.pattern ?? ""}
+          value={(action.params.pattern as string | undefined) ?? ""}
           placeholder="{name} - {date_modified}"
           onChange={(e) =>
             onChange({ params: { ...action.params, pattern: e.target.value } })
@@ -401,9 +401,9 @@ function ActionRow({
       )}
 
       {needsTag && (
-        <TagPicker
-          value={action.params.tag ?? ""}
-          onChange={(tag) => onChange({ params: { ...action.params, tag } })}
+        <TagsListInput
+          tags={Array.isArray(action.params.tags) ? (action.params.tags as string[]) : []}
+          onChange={(tags) => onChange({ params: { ...action.params, tags } })}
         />
       )}
 
@@ -434,7 +434,7 @@ function ActionRow({
       {needsScript && (
         <textarea
           className="action-script"
-          value={action.params.script ?? ""}
+          value={(action.params.script as string | undefined) ?? ""}
           placeholder="#!/bin/bash&#10;echo $FOREL_FILE"
           onChange={(e) =>
             onChange({ params: { ...action.params, script: e.target.value } })
@@ -445,6 +445,61 @@ function ActionRow({
       <button className="row-remove" onClick={onRemove}>
         <Minus size={12} />
       </button>
+    </div>
+  );
+}
+
+// ---------- Multi-tag chips input (used by add_tag / remove_tag actions) ----------
+
+function TagsListInput({
+  tags,
+  onChange,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const commit = () => {
+    const tag = input.trim();
+    if (tag && !tags.includes(tag)) onChange([...tags, tag]);
+    setInput("");
+  };
+
+  return (
+    <div className="tags-list-input" onClick={() => inputRef.current?.focus()}>
+      {tags.map((tag) => (
+        <span key={tag} className="tags-list-chip">
+          {tag}
+          <button
+            type="button"
+            className="tags-list-chip-remove"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange(tags.filter((t) => t !== tag));
+            }}
+          >
+            <X size={9} />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        className="tags-list-inline-input"
+        value={input}
+        placeholder={tags.length === 0 ? "Add tags…" : ""}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Backspace" && !input && tags.length > 0) {
+            onChange(tags.slice(0, -1));
+          }
+        }}
+        onBlur={commit}
+      />
     </div>
   );
 }

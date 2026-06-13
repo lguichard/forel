@@ -50,7 +50,7 @@ export interface Action {
   id: string;
   rule_id: string;
   kind: ActionKind;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
   position: number;
 }
 

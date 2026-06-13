@@ -599,6 +599,56 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--te
 }
 .row-remove:hover { color: var(--danger); background: rgba(255, 59, 48, 0.1); }
 
+/* ---- Tags list input (add_tag / remove_tag action) ---- */
+.tags-list-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  padding: 3px 8px;
+  background: var(--bg-control);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  min-height: 30px;
+  cursor: text;
+}
+
+.tags-list-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1;
+}
+
+.tags-list-chip-remove {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  line-height: 0;
+}
+.tags-list-chip-remove:hover { color: var(--danger); }
+
+.tags-list-inline-input {
+  flex: 1;
+  min-width: 60px;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 2px 0;
+}
+
 /* ---- Color dot picker ---- */
 .tag-picker {
   display: flex;

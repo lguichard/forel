@@ -59,21 +59,27 @@ pub fn execute(action: &Action, path: &Path) -> Result<()> {
         }
 
         ActionKind::AddTag => {
-            let tag = action
+            let tags: Vec<&str> = action
                 .params
-                .get("tag")
-                .and_then(|v| v.as_str())
-                .context("AddTag requires 'tag' param")?;
-            apply_file_tag(path, tag, true)?;
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            for tag in tags {
+                apply_file_tag(path, tag, true)?;
+            }
         }
 
         ActionKind::RemoveTag => {
-            let tag = action
+            let tags: Vec<&str> = action
                 .params
-                .get("tag")
-                .and_then(|v| v.as_str())
-                .context("RemoveTag requires 'tag' param")?;
-            apply_file_tag(path, tag, false)?;
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            for tag in tags {
+                apply_file_tag(path, tag, false)?;
+            }
         }
 
         ActionKind::SetColorLabel => {
@@ -133,20 +139,30 @@ pub fn preview(action: &Action, path: &Path) -> Result<String> {
         ActionKind::MoveToTrash => "Move to Trash".to_string(),
         ActionKind::Delete => "Delete permanently".to_string(),
         ActionKind::AddTag => {
-            let tag = action
+            let tags: Vec<&str> = action
                 .params
-                .get("tag")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("Add tag '{}'", tag)
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            if tags.is_empty() {
+                "Add tag".to_string()
+            } else {
+                format!("Add tag{}: {}", if tags.len() > 1 { "s" } else { "" }, tags.join(", "))
+            }
         }
         ActionKind::RemoveTag => {
-            let tag = action
+            let tags: Vec<&str> = action
                 .params
-                .get("tag")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            format!("Remove tag '{}'", tag)
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            if tags.is_empty() {
+                "Remove tag".to_string()
+            } else {
+                format!("Remove tag{}: {}", if tags.len() > 1 { "s" } else { "" }, tags.join(", "))
+            }
         }
         ActionKind::SetColorLabel => {
             let color = action
@@ -346,8 +362,8 @@ mod tests {
     fn add_and_remove_tag_updates_finder_tag_xattr_without_duplicates() {
         let dir = TestDir::new();
         let file = dir.file("document.txt", "hello");
-        let add = test_action(ActionKind::AddTag, json!({ "tag": "Project" }));
-        let remove = test_action(ActionKind::RemoveTag, json!({ "tag": "Project" }));
+        let add = test_action(ActionKind::AddTag, json!({ "tags": ["Project"] }));
+        let remove = test_action(ActionKind::RemoveTag, json!({ "tags": ["Project"] }));
 
         execute(&add, &file).expect("add tag once");
         execute(&add, &file).expect("add tag twice");
@@ -361,7 +377,7 @@ mod tests {
     fn set_color_label_replaces_existing_color_and_preserves_text_tags() {
         let dir = TestDir::new();
         let file = dir.file("image.png", "png");
-        let add_text_tag = test_action(ActionKind::AddTag, json!({ "tag": "Project" }));
+        let add_text_tag = test_action(ActionKind::AddTag, json!({ "tags": ["Project"] }));
         let set_red = test_action(ActionKind::SetColorLabel, json!({ "color": "Red" }));
         let set_blue = test_action(ActionKind::SetColorLabel, json!({ "color": "Blue" }));
 
@@ -379,7 +395,7 @@ mod tests {
     fn set_color_label_with_missing_color_clears_existing_label() {
         let dir = TestDir::new();
         let file = dir.file("image.png", "png");
-        let add_text_tag = test_action(ActionKind::AddTag, json!({ "tag": "Project" }));
+        let add_text_tag = test_action(ActionKind::AddTag, json!({ "tags": ["Project"] }));
         let set_red = test_action(ActionKind::SetColorLabel, json!({ "color": "Red" }));
         let clear = test_action(ActionKind::SetColorLabel, json!({}));
 
