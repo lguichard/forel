@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Check, Minus, Plus, X } from "lucide-react";
+import { Minus, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useForelStore } from "../store";import {
+import { useForelStore } from "../store";
+import {
   ACTION_KIND_LABELS,
   Action,
   ActionKind,
@@ -15,6 +16,9 @@ import { useForelStore } from "../store";import {
   Rule,
 } from "../types";
 import { v4 as uuidv4 } from "uuid";
+import { ColorDotPicker, COLOR_LABELS } from "./ui/ColorDotPicker";
+import { Modal, ModalFooter, ModalHeader, ModalPanel } from "./ui/Modal";
+import { TagsInput } from "./ui/TagsInput";
 
 // Token definitions for the rename pattern editor
 const RENAME_TOKENS: { key: string; label: string; example: string }[] = [
@@ -51,9 +55,6 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: "folder",       label: "Folder" },
   { value: "application",  label: "Application" },
 ];
-
-// The 7 macOS system color labels, in Finder order.
-const COLOR_LABELS = ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray"];
 
 const SIZE_UNITS = ["bytes", "KB", "MB", "GB"] as const;
 
@@ -271,23 +272,10 @@ function ConditionRow({
           ))}
         </select>
       ) : condition.kind === "color_label" ? (
-        <div className="tag-picker">
-          {COLOR_LABELS.map((label) => {
-            const selected = condition.value === label;
-            return (
-              <button
-                key={label}
-                type="button"
-                className={`tag-dot${selected ? " tag-dot--active" : ""}`}
-                style={{ backgroundColor: MACOS_TAG_COLORS[label] }}
-                title={label}
-                onClick={() => onChange({ value: label })}
-              >
-                {selected && <Check size={9} color="#fff" strokeWidth={3} />}
-              </button>
-            );
-          })}
-        </div>
+        <ColorDotPicker
+          value={condition.value}
+          onChange={(v) => onChange({ value: v })}
+        />
       ) : condition.kind === "tags" ? (
         <TagPicker value={condition.value} onChange={(v) => onChange({ value: v })} />
       ) : condition.kind === "size_bytes" ? (
