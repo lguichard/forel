@@ -17,53 +17,56 @@ Forel is an **open-source macOS file-automation app** (think Hazel). It watches 
 
 | Layer | Technology |
 |---|---|
-| App shell | Tauri 2 |
-| Backend | Rust (stable) |
+| App shell | Wails 3 (v3 alpha) |
+| Backend | Go (1.24+) |
 | Frontend | React 19 + TypeScript |
 | State (UI) | Zustand 5 |
-| Persistence | SQLite via `rusqlite` (bundled) |
-| File watching | `notify` 6 (FSEvents on macOS) |
-| macOS tags | `xattr` + `plist` crates |
+| Persistence | SQLite via `modernc.org/sqlite` (pure-Go, no CGO) |
+| File watching | `fsnotify` (FSEvents/kqueue on macOS) |
+| macOS tags | `github.com/pkg/xattr` + `howett.net/plist` |
 | Icons | `lucide-react` |
-| Build | Vite 7 + `pnpm` |
+| Build | Wails 3 + Vite 7 + `pnpm` (frontend) |
 
 ---
 
 ## The IPC boundary — the most important constraint
 
-Tauri enforces a **hard process boundary** between the React frontend (WebView) and the Rust backend. They communicate exclusively through **typed IPC commands**.
+Wails enforces a **hard process boundary** between the React frontend (WebView) and the Go backend. They communicate through **bound service methods**: every exported method on the `App` service in `app.go` is exposed to the frontend as a typed, auto-generated TypeScript function.
 
 ```
-React (WebView)                   Rust (native process)
-──────────────────                ────────────────────────────────
-invoke("command_name", args)  →   #[tauri::command] fn command_name(...)
-        ↑                                   |
-        └──────────── JSON response ────────┘
+React (WebView)                          Go (native process)
+──────────────────                       ────────────────────────────────
+import { GetRules } from                 func (a *App) GetRules(folderID string)
+  "bindings/forel/app"                       ([]rules.Rule, error)
+GetRules(folderId)            →           ↑
+        ↑                                 |
+        └──────────── JSON response ──────┘
 ```
 
-**Every frontend feature that reads or mutates app state requires a matching Rust command.**
-There is no shared memory, no filesystem shortcut, no hidden channel.
+**Every frontend feature that reads or mutates app state requires a matching method on the `App` service.** There is no shared memory, no filesystem shortcut, no hidden channel. A returned `error` becomes a rejected JS promise.
 
-When adding a feature, ask yourself: _"Does the frontend need data from the OS/DB, or does it need to trigger a side effect?"_ If yes → you need a Rust command.
+When adding a feature, ask yourself: _"Does the frontend need data from the OS/DB, or does it need to trigger a side effect?"_ If yes → you need a bound method.
 
-### Adding a command — the full checklist
+### Adding a bound method — the full checklist
 
-1. **`src-tauri/src/commands.rs`** — write the `#[tauri::command]` function.
-   - Accept `state: State<AppState>` for DB/watcher access.
-   - Accept `app: AppHandle` if you need to rebuild the tray afterward.
-   - Return `Result<T, String>` — errors become JS `Promise` rejections.
+1. **`app.go`** — add an exported method to `*App`.
+   - Use `a.store` for DB access, `a.watcher` for watch commands, `a.app` for runtime (dialogs, etc.).
+   - Return `(T, error)` (or just `error`). Errors surface as JS promise rejections.
+   - Call `a.rebuildTray()` at the end if the change is visible in the tray.
 
-2. **`src-tauri/src/lib.rs`** — register it in `invoke_handler!`:
-   ```rust
-   commands::your_new_command,
+2. **`frontend/bindings/`** — regenerate bindings so the frontend can call the method:
+   ```bash
+   wails3 generate bindings -ts -d frontend/bindings
    ```
-   A command not listed here is invisible to the frontend — no build error, it just silently fails.
+   `wails3 dev` / `wails3 task build` also regenerate them automatically.
 
-3. **`src/store/index.ts`** — add a method to `useForelStore` that calls `invoke<ReturnType>("your_new_command", { arg })`.
+3. **`frontend/src/store/index.ts`** — add a Zustand action that imports and calls the
+   generated function from `../../bindings/forel/app`. Components never import bindings
+   directly except self-contained sub-components (e.g. the folder picker, tag picker).
 
-4. **`src/types/index.ts`** — add or extend types if the command returns new shapes.
-
-5. **`src-tauri/capabilities/default.json`** — if your command touches a Tauri plugin (fs, dialog, etc.), add the required permission here.
+4. **`frontend/src/types/index.ts`** — `types/index.ts` stays the UI source of truth.
+   The generated bindings use enum types; the store casts at the boundary
+   (`as unknown as <type>`) so the rest of the UI keeps using `../types`.
 
 ---
 
@@ -71,38 +74,41 @@ When adding a feature, ask yourself: _"Does the frontend need data from the OS/D
 
 ```
 forel/
-├── src/                          React frontend
-│   ├── App.tsx                   Root: layout, sidebar, rule list
-│   ├── App.css                   All styles (single file, no CSS modules)
-│   ├── main.tsx                  React entry point
-│   ├── components/
-│   │   ├── RuleEditor.tsx        Modal: edit conditions + actions for a rule
-│   │   ├── RuleList.tsx          Right panel: list rules for selected folder
-│   │   └── Sidebar.tsx           Left panel: watched folders
-│   ├── store/
-│   │   └── index.ts              Zustand store — all invoke() calls live here
-│   └── types/
-│       └── index.ts              Shared TS types + UI label maps
+├── main.go                       App bootstrap: DB open, watcher start, window, tray, run loop
+├── app.go                        App service — every exported method is an IPC-callable function
+├── go.mod / go.sum
+├── Taskfile.yml                  Wails task runner entry (build / dev / package)
+├── build/                        Wails build assets (config.yml, darwin/Info.plist, icons)
+├── internal/
+│   ├── db/db.go                  SQLite schema + all query helpers (Store type)
+│   ├── tray/                     System tray controller + icon compositing
+│   │   ├── tray.go               Dynamic menu rebuild + event handlers
+│   │   └── icon.go               Trim/recenter the menu-bar icon
+│   ├── watcher/watcher.go        fsnotify loop + Add/Remove command channel
+│   └── rules/
+│       ├── model.go              Rule/Condition/Action types (JSON tags ↔ DB strings)
+│       ├── condition.go          Condition evaluation logic
+│       ├── action.go             Action execution + macOS Finder tags/colors
+│       ├── engine.go             Applies rules to a file path; preview types
+│       └── fileinfo_darwin.go    macOS file birth-time helper
 │
-└── src-tauri/                    Rust backend (Tauri 2)
-    ├── Cargo.toml
-    ├── tauri.conf.json           App metadata, window config, bundle ID
-    ├── capabilities/
-    │   └── default.json          Tauri permission grants
+└── frontend/                     React frontend (Vite + pnpm)
+    ├── index.html
+    ├── package.json              pnpm only; depends on @wailsio/runtime
+    ├── vite.config.ts            dev server on port 9245 (matches Wails)
+    ├── bindings/                 GENERATED Go↔TS bindings (committed)
     └── src/
-        ├── lib.rs                App setup: DB init, watcher start, tray, IPC registration
-        ├── main.rs               Binary entry (calls lib::run)
-        ├── state.rs              AppState struct (db, watcher, paused flag)
-        ├── commands.rs           All #[tauri::command] functions
-        ├── db.rs                 SQLite schema + all query helpers
-        ├── tray.rs               System tray icon, menu, event handler
-        ├── watcher.rs            notify-based FSEvents loop
-        └── rules/
-            ├── mod.rs            Re-exports
-            ├── model.rs          Rule/Condition/Action types (serde ↔ DB)
-            ├── condition.rs      Condition evaluation logic
-            ├── action.rs         Action execution logic (move, tag, script…)
-            └── engine.rs         Applies rules to a file path
+        ├── App.tsx               Root: layout, sidebar, rule list
+        ├── App.css               All styles (single file, no CSS modules)
+        ├── main.tsx              React entry point
+        ├── components/
+        │   ├── RuleEditor.tsx    Modal: edit conditions + actions for a rule
+        │   ├── RuleList.tsx      Right panel: list rules for selected folder
+        │   └── Sidebar.tsx       Left panel: watched folders
+        ├── store/
+        │   └── index.ts          Zustand store — all binding calls live here
+        └── types/
+            └── index.ts          Shared TS types + UI label maps
 ```
 
 ---
@@ -110,60 +116,44 @@ forel/
 ## Dev commands
 
 ```bash
-# Run app in dev mode (hot-reload frontend, Rust recompiles on change)
-pnpm tauri dev
+# Run app in dev mode (hot-reload frontend, Go rebuilds on change)
+wails3 dev            # or: wails3 task dev
 
-# Type-check frontend only
-pnpm build          # tsc + vite build
+# Build the app binary (frontend + bindings + go build → bin/Forel)
+wails3 task build
 
-# Check Rust without linking (fast)
-cargo check         # run from src-tauri/
+# Package a macOS .app bundle
+wails3 task package
 
-# Full Rust build (slow, needed before tauri dev first run)
-cargo build         # run from src-tauri/
+# Regenerate the Go↔TS bindings after changing app.go
+wails3 generate bindings -ts -d frontend/bindings
 
-# Regenerate all icon sizes from a square PNG source
-pnpm tauri icon assets/forel-icon.png
+# Type-check / build frontend only (from frontend/)
+pnpm build           # tsc + vite build
 
-# Package the app (.dmg / .app)
-pnpm tauri build
+# Run the Go test suites
+go test ./internal/...
 ```
 
-> `pnpm` is required (`npm` and `yarn` are not used). Run all JS commands from the repo root.
-> Run `cargo` commands from `src-tauri/`.
+> `wails3` lives in `$(go env GOPATH)/bin` — ensure it is on your `PATH`.
+> `pnpm` is required for the frontend (`npm`/`yarn` are not used). Run `pnpm` from `frontend/`.
 
 ---
 
-## Compilation warnings policy
+## Build & lint policy
 
-**Every `cargo check` and `cargo build` run must finish with zero warnings introduced by your change.**
-
-Run this before considering any Rust work done:
+**Every change must build cleanly and pass `go vet` and `go test`.**
 
 ```bash
-cargo check 2>&1 | grep "^warning"
+go build ./...        # must succeed (ld "built for newer macOS" warnings are harmless)
+go vet ./...          # must be clean
+go test ./internal/...# must pass
+gofmt -l .            # must print nothing (everything formatted)
 ```
 
-If the output is non-empty, fix every warning before moving on.
-
-### Common warnings and how to fix them
-
-| Warning | Fix |
-|---|---|
-| `dead_code` — unused function or variant | Remove it. Do not add `#[allow(dead_code)]`. |
-| `unused_variable` | Remove it, or prefix with `_` if intentionally unused. |
-| `unused_import` | Remove the `use` line. |
-| `unused_must_use` — `Result` ignored | Handle with `?`, `.ok()`, or `let _ =` with a comment explaining why. |
-| `deprecated` | Use the replacement API shown in the warning. |
-| `non_snake_case` / `non_camel_case_types` | Rename to follow Rust conventions. |
-
-### What is not acceptable
-
-- `#[allow(dead_code)]` on new code. If it's dead, delete it.
-- `#[allow(unused_imports)]` without an explanation comment.
-- Suppressing warnings with `#[allow(...)]` as a shortcut to pass CI. Fix the root cause.
-
-The three pre-existing dead-code warnings (`Condition::new`, `Action::new`, `WatcherCmd::Shutdown`) are tracked and will be cleaned up separately — do not add to that list.
+- No unused imports, variables, or dead helpers — `go vet`/compiler will flag them; fix the root cause, don't silence it.
+- Don't add abstractions "for later."
+- The frontend must pass `pnpm build` (strict `tsc`, no `any`).
 
 ---
 
@@ -178,7 +168,7 @@ watched_folders (id, path, enabled, created_at)
             └── actions    (id, rule_id, kind, params JSON, position)
 ```
 
-`params` is a freeform JSON object. Each action kind documents its expected keys in `action.rs`.
+`params` is a freeform JSON object (`map[string]any` in Go). Each action kind documents its expected keys in `action.go`.
 
 ---
 
@@ -186,40 +176,29 @@ watched_folders (id, path, enabled, created_at)
 
 Actions are the most common extension point. Follow every step — skipping one silently breaks the feature.
 
-### 1. Rust model (`src-tauri/src/rules/model.rs`)
+### 1. Go model (`internal/rules/model.go`)
 
-Add a variant to `ActionKind`:
-```rust
-pub enum ActionKind {
-    // …existing…
-    YourNewAction,
-}
+Add a typed-string constant to the `ActionKind` block. The string value is what's stored in
+SQLite and consumed by the frontend:
+```go
+const ActYourNewAction ActionKind = "your_new_action"
 ```
 
-### 2. Rust DB serialization (`src-tauri/src/db.rs`)
+### 2. Go execution (`internal/rules/action.go`)
 
-Add a string mapping in **both** converters:
-```rust
-// action_kind_to_str
-ActionKind::YourNewAction => "your_new_action",
-
-// parse_action_kind
-"your_new_action" => ActionKind::YourNewAction,
-```
-
-### 3. Rust execution (`src-tauri/src/rules/action.rs`)
-
-Add a match arm in `execute()`:
-```rust
-ActionKind::YourNewAction => {
-    let param = action.params.get("my_param")
-        .and_then(|v| v.as_str())
-        .context("YourNewAction requires 'my_param'")?;
+Add a `case` to both `Execute()` and `Preview()`:
+```go
+case ActYourNewAction:
+    param := paramString(action.Params, "my_param")
+    if param == "" {
+        return fmt.Errorf("YourNewAction requires 'my_param'")
+    }
     // … do the thing …
-}
 ```
+(Use `paramString` / `paramStrings` helpers to read params. No DB converter step is needed —
+the kind round-trips as its raw string.)
 
-### 4. TypeScript type (`src/types/index.ts`)
+### 3. TypeScript type (`frontend/src/types/index.ts`)
 
 ```typescript
 export type ActionKind =
@@ -232,9 +211,13 @@ export const ACTION_KIND_LABELS: Record<ActionKind, string> = {
 };
 ```
 
-### 5. Frontend UI (`src/components/RuleEditor.tsx`)
+### 4. Frontend UI (`frontend/src/components/RuleEditor.tsx`)
 
 Add a `needsX` boolean in `ActionRow` and render the relevant input(s).
+
+### 5. Regenerate bindings
+
+`wails3 generate bindings -ts -d frontend/bindings` (or just run `wails3 dev`).
 
 ---
 
@@ -242,57 +225,62 @@ Add a `needsX` boolean in `ActionRow` and render the relevant input(s).
 
 Same layered pattern as actions:
 
-1. Add variant to `ConditionKind` in `model.rs`
-2. Add string mapping in `db.rs` (`condition_kind_to_str` + `parse_condition_kind`)
-3. Implement evaluation in `condition.rs` — the function receives `&Path` and returns `bool`
-4. Add to `ConditionKind` union type and `CONDITION_KIND_LABELS` in `src/types/index.ts`
-5. Wire up operator set in `operatorsFor()` in `RuleEditor.tsx`
+1. Add a typed-string constant to `ConditionKind` in `model.go`
+2. Implement evaluation in `condition.go` — `Evaluate` receives a `path string` and returns `(bool, error)`
+3. Add to the `ConditionKind` union and `CONDITION_KIND_LABELS` in `frontend/src/types/index.ts`
+4. Wire up the operator set in `operatorsFor()` in `RuleEditor.tsx`
+5. Regenerate bindings
 
 ---
 
 ## Tray menu
 
-The tray menu is rebuilt from scratch after every mutation (add/remove folder, toggle rule, etc.). The entry point is `tray::rebuild(&app)` — call it at the end of any command that changes visible state.
+The tray menu is rebuilt from scratch after every mutation (add/remove folder, toggle rule, etc.). The entry point is `(*tray.Controller).Rebuild()`; the `App` service calls it via `a.rebuildTray()` at the end of any method that changes visible state.
 
-The tray icon carries a colored status dot (green = watching, red = paused). The dot is drawn by compositing raw RGBA pixels in `tray.rs::icon_with_dot()`.
+The menu-bar icon is the app icon with its transparent padding trimmed and re-centered in a square canvas (`internal/tray/icon.go`). The source PNG (`assets/forel-icon.png`) must be square.
 
 ---
 
-## AppState
+## App state
 
-```rust
-pub struct AppState {
-    pub db: Arc<Mutex<Connection>>,      // always lock, use, drop — don't hold across awaits
-    pub watcher: Mutex<Option<WatcherHandle>>,
-    pub paused: Arc<AtomicBool>,         // lock-free global pause flag
+The `App` service in `app.go` holds the shared state:
+
+```go
+type App struct {
+    store   *db.Store    // SQLite access (single connection, serialised)
+    watcher Watcher      // fsnotify control surface (Add/Remove)
+    paused  *atomic.Bool // lock-free global pause flag
+
+    app  *application.App   // Wails runtime (dialogs, quit, …)
+    tray *tray.Controller   // rebuilt on visible changes
 }
 ```
 
-- Lock `db` for the shortest possible scope. Drop the guard before calling `tray::rebuild`.
-- Send watcher commands via `state.watcher.lock()?.as_ref()?.tx.send(WatcherCmd::…)`.
-- Toggle pause with `state.paused.store(…, Ordering::Relaxed)`.
+- `db.Store` wraps `*sql.DB` with `SetMaxOpenConns(1)` so all access is serialised — no manual mutex needed. `UpdateRule` is atomic via a `*sql.Tx`.
+- Send watcher commands with `a.watcher.Add(path)` / `a.watcher.Remove(path)`.
+- Toggle pause with `a.paused.Store(…)`.
 
 ---
 
 ## Code conventions
 
-### Rust
+### Go
 
-- Edition 2021. No `extern crate` declarations needed.
-- Use `anyhow::{Result, Context, bail}` for all error handling in library code.
-- Commands return `Result<T, String>` — convert with `.map_err(|e| e.to_string())`.
-- No `unwrap()` in production paths — use `?`, `ok()`, or `unwrap_or_default()`.
-- No comments explaining *what* code does. One short comment only when *why* is non-obvious.
-- No dead-code helpers. Don't add abstractions for future use.
+- Errors: return `error`; wrap with `fmt.Errorf("context: %w", err)`. Bound methods return `(T, error)`.
+- No `panic` in production paths. No dead-code helpers or speculative abstractions.
+- One short comment only when *why* is non-obvious — not *what*.
+- macOS only: platform-specific code uses the `_darwin.go` suffix (e.g. `fileinfo_darwin.go`). Do not add Linux/Windows stubs.
+- Keep `gofmt` clean.
 
 ### TypeScript / React
 
 - Strict mode (`tsconfig.json`). No `any`.
-- All `invoke()` calls go in `src/store/index.ts` — components never call `invoke` directly except in self-contained sub-components (e.g. `MacTagPicker`).
-- Zustand actions are async when they wrap an `invoke`.
+- All binding calls go in `frontend/src/store/index.ts` — components never import from `bindings/` directly except self-contained sub-components (folder picker, tag picker).
+- Zustand actions are async when they wrap a binding call.
 - Styles live in `App.css` — no CSS modules, no Tailwind, no inline styles except dynamic values (e.g. `backgroundColor`).
 - Component files export one default component. Inner components (e.g. `ConditionRow`) are plain functions in the same file.
 - No `useEffect` for derived state — compute it inline.
+- `types/index.ts` is the UI source of truth; cast generated binding results to those types in the store.
 
 ---
 
@@ -302,22 +290,21 @@ pub struct AppState {
 
 - Open an issue first for anything non-trivial. Discuss the approach before writing code.
 - Check that no open PR already covers the same feature.
-- `pnpm tauri dev` must run cleanly on your machine before you begin.
+- `wails3 dev` must run cleanly on your machine before you begin.
 
 ### What a good PR looks like
 
 - **One concern per PR.** A new action type is one PR. A new condition type is another.
-- **Both sides of the boundary.** Any PR that adds frontend UI _must_ include the matching Rust command (and vice versa). A frontend-only PR that fakes data with hardcoded values will not be merged.
-- **No breaking schema changes without a migration.** If you add a column to a SQLite table, add `ALTER TABLE … ADD COLUMN` to `db::init` guarded by a `PRAGMA user_version` check, or provide a migration script.
-- **`cargo check` passes** with zero new warnings — see the _Compilation warnings policy_ section above. Run `cargo check 2>&1 | grep "^warning"` and the output must be empty for lines your PR introduced.
+- **Both sides of the boundary.** Any PR that adds frontend UI _must_ include the matching `App` method and regenerated bindings (and vice versa). A frontend-only PR that fakes data with hardcoded values will not be merged.
+- **No breaking schema changes without a migration.** If you add a column to a SQLite table, guard it in `db.init` (e.g. `ALTER TABLE … ADD COLUMN` behind a `PRAGMA user_version` check).
+- **`go build ./...`, `go vet ./...`, and `go test ./internal/...` pass** with no new issues.
 - **`pnpm build` passes** with zero TypeScript errors.
 - **Manual test.** Describe in the PR body what you tested: which folder, which file, which rule, what you observed.
 
 ### What will be rejected
 
-- PRs that add a frontend action/condition with a stub Rust implementation.
+- PRs that add a frontend action/condition with a stub Go implementation.
 - PRs that break the tray (the tray must reflect state changes immediately).
-- PRs that add `unwrap()` calls on paths that can realistically fail.
 - PRs that change `App.css` class names without updating all usages.
 - PRs that add abstractions, helpers, or utilities "for later."
 - Feature flags, backwards-compat shims, or commented-out code.
@@ -335,8 +322,8 @@ type: short imperative sentence
 
 ## macOS-specific notes
 
-- **Tags** are stored as a binary plist in the `com.apple.metadata:_kMDItemUserTags` xattr. The `plist` and `xattr` crates handle this. Finder reflects changes immediately — no restart needed.
-- **File watching** uses FSEvents via the `notify` crate. Events arrive on a background thread; the watcher loop sends `WatcherCmd` messages over an `mpsc` channel to serialize access.
-- **Tray icon** is rebuilt by compositing raw RGBA pixels. The source PNG must be square — use `sips -c <size> <size> icon.png` to crop if needed, then `pnpm tauri icon` to regenerate all sizes.
-- **Window close** hides the window instead of quitting. The app keeps running in the tray. Quit is only available from the tray menu.
-- This app targets **macOS only**. Do not add `#[cfg(not(target_os = "macos"))]` stubs for Linux/Windows — keep the code simple.
+- **Tags** are stored as a binary plist in the `com.apple.metadata:_kMDItemUserTags` xattr (`pkg/xattr` + `howett.net/plist`). A color label is a tag of the form `"Name\nIndex"` (gray=1, green=2, purple=3, blue=4, yellow=5, red=6, orange=7). Finder reflects changes immediately — no restart needed.
+- **File watching** uses `fsnotify` (FSEvents/kqueue). The watcher runs on a goroutine; `Add`/`Remove` commands and fs events are serialised through a single `select` loop.
+- **Tray icon** is trimmed/re-centered from `assets/forel-icon.png`. Keep the source PNG square.
+- **Window close** hides the window instead of quitting (handled via the `WindowClosing` event in `main.go`). The app keeps running in the tray. Quit is only available from the tray menu.
+- This app targets **macOS only**. Keep the code simple — no cross-platform stubs.

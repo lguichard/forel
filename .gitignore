@@ -7,10 +7,19 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Node / frontend
 node_modules
 dist
 dist-ssr
 *.local
+frontend/dist
+frontend/node_modules
+
+# Wails / Go build output
+.task
+bin
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 
 # Editor directories and files
 .vscode/*

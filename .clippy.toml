@@ -1,5 +1,0 @@
-# Maximum complexity allowed for a single function.
-cognitive-complexity-threshold = 25
-
-# Minimum chars before Clippy suggests a type alias for a long type.
-type-complexity-threshold = 250

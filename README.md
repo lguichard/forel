@@ -7,8 +7,8 @@
 **The Hazel alternative for macOS. Free and open source.**
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?style=flat-square&logo=apple)](https://www.apple.com/macos/)
-[![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db?style=flat-square&logo=tauri)](https://tauri.app)
-[![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust)](https://www.rust-lang.org)
+[![Wails 3](https://img.shields.io/badge/Wails-3-df0000?style=flat-square&logo=wails)](https://wails.io)
+[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?style=flat-square&logo=go)](https://go.dev)
 [![React 19](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)](https://react.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/lguichard/forel?style=flat-square)](https://github.com/lguichard/forel/stargazers)
@@ -76,7 +76,7 @@ Hazel built the category. Forel makes it free for everyone.
 ## Features
 
 - **Rule-based automation** — Create flexible rules combining filename patterns, file types, sizes, and dates.
-- **Folder watching** — Monitor any number of folders in real time using the `notify` crate (FSEvents-backed on macOS).
+- **Folder watching** — Monitor any number of folders in real time using `fsnotify` (FSEvents-backed on macOS).
 - **Menu bar icon** — Forel lives in your menu bar. Toggle individual rules on/off without opening the main window.
 - **Actions** — Move, copy, rename, tag, trash, or run a custom script.
 - **Privacy first** — No telemetry, no analytics, no accounts. SQLite database stored locally.
@@ -97,19 +97,18 @@ Download the latest `.dmg` from the [Releases](https://github.com/lguichard/fore
 
 ### Build from source
 
-**Prerequisites:** [Rust](https://rustup.rs) · [Node.js 20+](https://nodejs.org) · [pnpm](https://pnpm.io)
+**Prerequisites:** [Go 1.24+](https://go.dev/dl/) · [Node.js 20+](https://nodejs.org) · [pnpm](https://pnpm.io) · the [Wails 3 CLI](https://v3.wails.io) (`go install github.com/wailsapp/wails/v3/cmd/wails3@latest`)
 
 ```bash
 git clone https://github.com/lguichard/forel.git
 cd forel
-pnpm install
-pnpm tauri dev
+wails3 dev
 ```
 
-To build a release `.dmg`:
+To build a packaged macOS `.app`:
 
 ```bash
-pnpm tauri build
+wails3 task package
 ```
 
 > Requires macOS 14 Sonoma or later.
@@ -139,45 +138,38 @@ For a full walkthrough, see the [Getting Started guide](docs/getting-started.md)
 
 ## Architecture
 
-Forel is built with [Tauri 2](https://tauri.app): a **Rust backend** for system-level work and a **React frontend** for the UI, compiled into a native macOS app.
+Forel is built with [Wails 3](https://wails.io): a **Go backend** for system-level work and a **React frontend** for the UI, compiled into a native macOS app.
 
 ```
 forel/
-├── src/                        # React + TypeScript frontend
-│   ├── components/
-│   │   ├── RuleList.tsx         # Rules list view
-│   │   ├── RuleEditor.tsx       # Rule detail / editor
-│   │   └── Sidebar.tsx          # Folder sidebar
-│   ├── store/
-│   │   └── index.ts             # Zustand global state
-│   └── types/
-│       └── index.ts             # Shared TypeScript types
+├── main.go                     # App bootstrap: DB, watcher, window, tray, run loop
+├── app.go                      # Bound service — methods exposed to the frontend
+├── internal/
+│   ├── db/db.go                # SQLite schema & queries (modernc.org/sqlite)
+│   ├── tray/                   # macOS menu bar icon & dynamic menu
+│   ├── watcher/watcher.go      # File system watcher (fsnotify)
+│   └── rules/
+│       ├── model.go            # Rule / Condition / Action data models
+│       ├── engine.go           # Rule evaluation pipeline
+│       ├── condition.go        # Condition matching logic
+│       └── action.go           # Action execution (move, rename, tag…)
 │
-└── src-tauri/                  # Rust backend
-    ├── src/
-    │   ├── lib.rs               # App setup, Tauri builder
-    │   ├── state.rs             # Shared AppState (DB + watcher)
-    │   ├── commands.rs          # Tauri IPC commands (invokable from frontend)
-    │   ├── db.rs                # SQLite schema & queries (rusqlite)
-    │   ├── tray.rs              # macOS menu bar icon & menu
-    │   ├── watcher.rs           # File system watcher (notify crate)
-    │   └── rules/
-    │       ├── model.rs         # Rule / Condition / Action data models
-    │       ├── engine.rs        # Rule evaluation pipeline
-    │       ├── condition.rs     # Condition matching logic
-    │       └── action.rs        # Action execution (move, rename, tag…)
-    ├── Cargo.toml
-    └── tauri.conf.json
+└── frontend/                   # React + TypeScript frontend
+    ├── bindings/               # Generated Go↔TS bindings
+    └── src/
+        ├── components/         # RuleList, RuleEditor, Sidebar
+        ├── store/index.ts      # Zustand global state — all binding calls
+        └── types/index.ts      # Shared TypeScript types
 ```
 
 **Key technology choices:**
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| App shell | Tauri 2 | Native macOS binary, tiny bundle, no Electron overhead |
-| Backend | Rust | Safe systems code, direct FSEvents access, zero-cost async |
-| File watching | `notify` 6 (FSEvents) | Low-latency, battery-friendly folder monitoring |
-| Database | SQLite via `rusqlite` | Embedded, no server, persists rules across reboots |
+| App shell | Wails 3 | Native macOS binary, tiny bundle, no Electron overhead |
+| Backend | Go | Simple systems code, fast builds, great stdlib |
+| File watching | `fsnotify` (FSEvents) | Low-latency, battery-friendly folder monitoring |
+| Database | SQLite via `modernc.org/sqlite` | Pure-Go, no CGO, persists rules across reboots |
 | Frontend | React 19 + TypeScript | Familiar web stack, fast iteration |
 | State | Zustand | Minimal, no boilerplate |
 | Build | Vite 7 + pnpm | Fast HMR during development |
@@ -186,7 +178,7 @@ forel/
 
 ## Roadmap
 
-- [x] Folder watching (FSEvents via `notify`)
+- [x] Folder watching (FSEvents via `fsnotify`)
 - [x] Rule engine (name, extension, size, date)
 - [x] Actions: move, copy, rename, trash, delete, tag, open with, run script
 - [x] SQLite persistence
@@ -206,8 +198,7 @@ Forel is in early development and contributions are very welcome.
 ```bash
 git clone https://github.com/lguichard/forel.git
 cd forel
-pnpm install
-pnpm tauri dev   # hot-reload frontend + Rust backend
+wails3 dev   # hot-reload frontend + Go backend
 ```
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting. Bug reports, feature requests, and documentation improvements are all appreciated.
@@ -222,6 +213,6 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Made with ☕ · Tauri + Rust + React · Inspired by the gap Hazel left unfilled
+Made with ☕ · Wails + Go + React · Inspired by the gap Hazel left unfilled
 
 </div>
