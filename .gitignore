@@ -19,7 +19,6 @@ frontend/node_modules
 .task
 bin
 build/linux/appimage/build
-build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 
 # Editor directories and files
 .vscode/*
