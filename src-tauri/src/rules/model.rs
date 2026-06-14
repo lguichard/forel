@@ -116,9 +116,9 @@ pub struct Action {
     pub rule_id: String,
     pub kind: ActionKind,
     /// JSON-encoded parameters specific to each action kind.
-    /// e.g. MoveToFolder: {"destination": "/path/to/folder"}
-    /// Rename: {"pattern": "{name} - {date_modified}"}
-    /// AddTag: {"tag": "important"}
+    /// e.g. `MoveToFolder`: {"destination": "/path/to/folder"}
+    /// Rename: {"pattern": "{name} - {`date_modified`}"}
+    /// `AddTag`: {"tag": "important"}
     pub params: serde_json::Value,
     pub position: i64,
 }

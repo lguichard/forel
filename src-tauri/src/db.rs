@@ -90,7 +90,7 @@ pub fn insert_folder(conn: &Connection, folder: &WatchedFolder) -> Result<()> {
         params![
             folder.id,
             folder.path,
-            folder.enabled as i64,
+            i64::from(folder.enabled),
             folder.created_at
         ],
     )?;
@@ -105,7 +105,7 @@ pub fn delete_folder(conn: &Connection, id: &str) -> Result<()> {
 pub fn toggle_folder(conn: &Connection, id: &str, enabled: bool) -> Result<()> {
     conn.execute(
         "UPDATE watched_folders SET enabled=?1 WHERE id=?2",
-        params![enabled as i64, id],
+        params![i64::from(enabled), id],
     )?;
     Ok(())
 }
@@ -170,7 +170,7 @@ pub fn insert_rule(conn: &Connection, rule: &Rule) -> Result<()> {
             rule.id,
             rule.folder_id,
             rule.name,
-            rule.enabled as i64,
+            i64::from(rule.enabled),
             match_str,
             rule.priority,
             rule.created_at
@@ -192,7 +192,7 @@ pub fn update_rule(conn: &Connection, rule: &Rule) -> Result<()> {
             "UPDATE rules SET name=?1, enabled=?2, condition_match=?3, priority=?4 WHERE id=?5",
             params![
                 rule.name,
-                rule.enabled as i64,
+                i64::from(rule.enabled),
                 match_str,
                 rule.priority,
                 rule.id
@@ -229,7 +229,7 @@ pub fn delete_rule(conn: &Connection, id: &str) -> Result<()> {
 pub fn toggle_rule(conn: &Connection, id: &str, enabled: bool) -> Result<()> {
     conn.execute(
         "UPDATE rules SET enabled=?1 WHERE id=?2",
-        params![enabled as i64, id],
+        params![i64::from(enabled), id],
     )?;
     Ok(())
 }
@@ -252,15 +252,15 @@ fn list_conditions(conn: &Connection, rule_id: &str) -> Result<Vec<Condition>> {
         .context("list conditions")
 }
 
-fn insert_condition(conn: &Connection, cond: &Condition) -> Result<()> {
+fn insert_condition(conn: &Connection, condition: &Condition) -> Result<()> {
     conn.execute(
         "INSERT INTO conditions (id, rule_id, kind, operator, value) VALUES (?1,?2,?3,?4,?5)",
         params![
-            cond.id,
-            cond.rule_id,
-            condition_kind_to_str(&cond.kind),
-            operator_to_str(&cond.operator),
-            cond.value
+            condition.id,
+            condition.rule_id,
+            condition_kind_to_str(&condition.kind),
+            operator_to_str(&condition.operator),
+            condition.value
         ],
     )?;
     Ok(())

@@ -15,7 +15,7 @@ export default function Sidebar() {
   };
 
   const handleRemove = () => {
-    if (selectedFolderId) removeFolder(selectedFolderId);
+    if (selectedFolderId) void removeFolder(selectedFolderId);
   };
 
   return (

@@ -1,18 +1,8 @@
 import { Check } from "lucide-react";
+import { COLOR_LABELS, MACOS_TAG_COLORS } from "./colors";
 
-// The 7 macOS system color labels in Finder order.
-export const COLOR_LABELS = ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray"] as const;
-export type ColorLabel = (typeof COLOR_LABELS)[number];
-
-export const MACOS_TAG_COLORS: Record<ColorLabel, string> = {
-  Red:    "#FF3B30",
-  Orange: "#FF9500",
-  Yellow: "#FFCC00",
-  Green:  "#34C759",
-  Blue:   "#007AFF",
-  Purple: "#AF52DE",
-  Gray:   "#8E8E93",
-};
+export type { ColorLabel } from "./colors";
+export { COLOR_LABELS, MACOS_TAG_COLORS } from "./colors";
 
 interface ColorDotPickerProps {
   /** Currently selected color label, or empty string for none. */

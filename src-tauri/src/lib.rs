@@ -1,3 +1,11 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+// Pedantic lints that are too noisy for this codebase:
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::must_use_candidate)]
+
 mod commands;
 mod db;
 mod rules;

@@ -53,15 +53,14 @@ pub fn evaluate(condition: &Condition, path: &Path) -> Result<bool> {
                 .map(|t| t.split('\n').next().unwrap_or(t).trim().to_lowercase())
                 .collect();
             Ok(match condition.operator {
-                Operator::Is => names.iter().any(|n| *n == target),
-                Operator::IsNot => !names.iter().any(|n| *n == target),
+                Operator::Is => names.contains(&target),
+                Operator::IsNot => !names.contains(&target),
                 Operator::Contains => names.iter().any(|n| n.contains(target.as_str())),
                 Operator::DoesNotContain => !names.iter().any(|n| n.contains(target.as_str())),
                 Operator::StartsWith => names.iter().any(|n| n.starts_with(target.as_str())),
                 Operator::EndsWith => names.iter().any(|n| n.ends_with(target.as_str())),
                 Operator::MatchesRegex => regex::Regex::new(&condition.value)
-                    .map(|re| names.iter().any(|n| re.is_match(n)))
-                    .unwrap_or(false),
+                    .is_ok_and(|re| names.iter().any(|n| re.is_match(n))),
                 _ => false,
             })
         }
@@ -100,7 +99,7 @@ fn detect_kind(path: &Path, meta: &std::fs::Metadata) -> &'static str {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase());
+        .map(str::to_lowercase);
 
     match ext.as_deref() {
         Some(
@@ -128,10 +127,6 @@ fn detect_kind(path: &Path, meta: &std::fs::Metadata) -> &'static str {
 
         Some("dmg" | "iso" | "img" | "sparseimage" | "sparsebundle") => "disk_image",
 
-        Some(
-            "doc" | "docx" | "odt" | "pages" | "xls" | "xlsx" | "ods" | "numbers" | "csv" | "epub",
-        ) => "document",
-
         _ => "document",
     }
 }
@@ -145,14 +140,15 @@ fn match_string(operator: &Operator, haystack: &str, needle: &str) -> bool {
         Operator::StartsWith => haystack.starts_with(needle),
         Operator::EndsWith => haystack.ends_with(needle),
         Operator::MatchesRegex => regex::Regex::new(needle)
-            .map(|re| re.is_match(haystack))
-            .unwrap_or(false),
+            .is_ok_and(|re| re.is_match(haystack)),
         _ => false,
     }
 }
 
 /// Parses a size threshold into bytes. Accepts a plain number ("5242880") or a
 /// number with a unit suffix ("5 MB", "100kb"). Unitless values are bytes.
+// Truncation and sign loss are intentional: file sizes are always positive integers.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn parse_size(value: &str) -> u64 {
     let s = value.trim();
     let split = s

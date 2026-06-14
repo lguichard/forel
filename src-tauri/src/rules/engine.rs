@@ -1,13 +1,10 @@
 use std::path::Path;
 
-use anyhow::Result;
 use serde::Serialize;
-
 use super::{
     action, condition,
     model::{ConditionMatch, Rule},
 };
-
 #[derive(Debug, Clone, Serialize)]
 pub struct RulePreview {
     pub rule_id: String,
@@ -34,15 +31,9 @@ pub fn evaluate_file(path: &Path, rules: &[Rule]) -> Vec<String> {
     let mut matched = Vec::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
-        match rule_matches(rule, path) {
-            Ok(true) => {
-                execute_actions(rule, path);
-                matched.push(rule.name.clone());
-            }
-            Ok(false) => {}
-            Err(e) => {
-                log::warn!("error evaluating rule '{}' on {:?}: {}", rule.name, path, e);
-            }
+        if rule_matches(rule, path) {
+            execute_actions(rule, path);
+            matched.push(rule.name.clone());
         }
     }
 
@@ -53,25 +44,19 @@ pub fn preview_file(path: &Path, rules: &[Rule]) -> Option<FilePreview> {
     let mut matched_rules = Vec::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
-        match rule_matches(rule, path) {
-            Ok(true) => {
-                let mut sorted = rule.actions.clone();
-                sorted.sort_by_key(|a| a.position);
-                let actions = sorted
-                    .iter()
-                    .map(|act| action::preview(act, path).unwrap_or_else(|e| e.to_string()))
-                    .collect();
+        if rule_matches(rule, path) {
+            let mut sorted = rule.actions.clone();
+            sorted.sort_by_key(|a| a.position);
+            let actions = sorted
+                .iter()
+                .map(|act| action::preview(act, path).unwrap_or_else(|e| e.to_string()))
+                .collect();
 
-                matched_rules.push(RulePreview {
-                    rule_id: rule.id.clone(),
-                    rule_name: rule.name.clone(),
-                    actions,
-                });
-            }
-            Ok(false) => {}
-            Err(e) => {
-                log::warn!("error previewing rule '{}' on {:?}: {}", rule.name, path, e);
-            }
+            matched_rules.push(RulePreview {
+                rule_id: rule.id.clone(),
+                rule_name: rule.name.clone(),
+                actions,
+            });
         }
     }
 
@@ -90,9 +75,9 @@ pub fn preview_file(path: &Path, rules: &[Rule]) -> Option<FilePreview> {
     })
 }
 
-fn rule_matches(rule: &Rule, path: &Path) -> Result<bool> {
+fn rule_matches(rule: &Rule, path: &Path) -> bool {
     if rule.conditions.is_empty() {
-        return Ok(false);
+        return false;
     }
 
     let results: Vec<bool> = rule
@@ -101,10 +86,10 @@ fn rule_matches(rule: &Rule, path: &Path) -> Result<bool> {
         .map(|c| condition::evaluate(c, path).unwrap_or(false))
         .collect();
 
-    Ok(match rule.condition_match {
+    match rule.condition_match {
         ConditionMatch::All => results.iter().all(|&v| v),
         ConditionMatch::Any => results.iter().any(|&v| v),
-    })
+    }
 }
 
 fn execute_actions(rule: &Rule, path: &Path) {
@@ -114,10 +99,10 @@ fn execute_actions(rule: &Rule, path: &Path) {
     for act in &sorted {
         if let Err(e) = action::execute(act, path) {
             log::error!(
-                "action '{:?}' in rule '{}' failed on {:?}: {}",
+                "action '{:?}' in rule '{}' failed on {}: {}",
                 act.kind,
                 rule.name,
-                path,
+                path.display(),
                 e
             );
         }

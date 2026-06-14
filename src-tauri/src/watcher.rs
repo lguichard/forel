@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     path::PathBuf,
     sync::{Arc, Mutex},
     thread,
@@ -30,7 +30,7 @@ pub fn start(db: Arc<Mutex<Connection>>, _app: AppHandle) -> Result<WatcherHandl
         .spawn(move || {
             let mut watcher: RecommendedWatcher =
                 notify::recommended_watcher(event_tx).expect("watcher init");
-            let mut watched: HashMap<PathBuf, ()> = HashMap::new();
+            let mut watch_set: HashSet<PathBuf> = HashSet::new();
 
             loop {
                 // Drain file-system events
@@ -41,14 +41,13 @@ pub fn start(db: Arc<Mutex<Connection>>, _app: AppHandle) -> Result<WatcherHandl
                 // Process commands
                 match cmd_rx.try_recv() {
                     Ok(WatcherCmd::Add(path)) => {
-                        if !watched.contains_key(&path) {
+                        if watch_set.insert(path.clone()) {
                             let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
-                            watched.insert(path, ());
                         }
                     }
                     Ok(WatcherCmd::Remove(path)) => {
                         let _ = watcher.unwatch(&path);
-                        watched.remove(&path);
+                        watch_set.remove(&path);
                     }
                     Err(_) => {}
                 }
@@ -73,21 +72,15 @@ fn on_event(event: &Event, db: &Arc<Mutex<Connection>>) {
         let rules = load_rules_for_path(path, db);
         let matched = engine::evaluate_file(path, &rules);
         for rule_name in matched {
-            log::info!("Rule '{}' matched {:?}", rule_name, path);
+            log::info!("Rule '{rule_name}' matched {}", path.display());
         }
     }
 }
 
 fn load_rules_for_path(path: &std::path::Path, db: &Arc<Mutex<Connection>>) -> Vec<Rule> {
-    let parent = match path.parent() {
-        Some(p) => p,
-        None => return vec![],
-    };
+    let Some(parent) = path.parent() else { return vec![] };
 
-    let conn = match db.lock() {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
+    let Ok(conn) = db.lock() else { return vec![] };
 
     // Find folder record matching this parent directory
     let folder_id: Option<String> = conn

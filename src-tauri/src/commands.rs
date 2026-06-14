@@ -1,3 +1,7 @@
+// Tauri command handlers must accept State<T> and AppHandle by value — the
+// macro wraps them and passing by reference is not supported.
+#![allow(clippy::needless_pass_by_value)]
+
 use tauri::{AppHandle, State};
 
 use crate::{

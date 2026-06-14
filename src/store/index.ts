@@ -59,7 +59,7 @@ export const useForelStore = create<ForelState>((set, get) => ({
 
   selectFolder: (id) => {
     set({ selectedFolderId: id, rules: [] });
-    if (id) get().fetchRules(id);
+    if (id) void get().fetchRules(id);
   },
 
   fetchRules: async (folderId) => {

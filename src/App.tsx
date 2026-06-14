@@ -12,7 +12,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    fetchFolders();
+    void fetchFolders();
   }, [fetchFolders]);
 
   // ⌘, opens Settings, like a native macOS app.

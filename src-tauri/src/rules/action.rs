@@ -16,7 +16,7 @@ pub fn execute(action: &Action, path: &Path) -> Result<()> {
             let file_name = path.file_name().context("no file name")?;
             let dest = Path::new(dest_dir).join(file_name);
             std::fs::rename(path, &dest)
-                .with_context(|| format!("move {:?} → {:?}", path, dest))?;
+                .with_context(|| format!("move {} → {}", path.display(), dest.display()))?;
         }
 
         ActionKind::CopyToFolder => {
@@ -27,7 +27,7 @@ pub fn execute(action: &Action, path: &Path) -> Result<()> {
                 .context("CopyToFolder requires 'destination' param")?;
             let file_name = path.file_name().context("no file name")?;
             let dest = Path::new(dest_dir).join(file_name);
-            std::fs::copy(path, &dest).with_context(|| format!("copy {:?} → {:?}", path, dest))?;
+            std::fs::copy(path, &dest).with_context(|| format!("copy {} → {}", path.display(), dest.display()))?;
         }
 
         ActionKind::Rename => {
@@ -39,7 +39,7 @@ pub fn execute(action: &Action, path: &Path) -> Result<()> {
             let new_name = apply_rename_pattern(pattern, path)?;
             let dest = path.with_file_name(new_name);
             std::fs::rename(path, &dest)
-                .with_context(|| format!("rename {:?} → {:?}", path, dest))?;
+                .with_context(|| format!("rename {} → {}", path.display(), dest.display()))?;
         }
 
         ActionKind::MoveToTrash => {
@@ -134,7 +134,7 @@ pub fn preview(action: &Action, path: &Path) -> Result<String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let new_name = apply_rename_pattern(pattern, path)?;
-            format!("Rename to {}", new_name)
+            format!("Rename to {new_name}")
         }
         ActionKind::MoveToTrash => "Move to Trash".to_string(),
         ActionKind::Delete => "Delete permanently".to_string(),
@@ -173,7 +173,7 @@ pub fn preview(action: &Action, path: &Path) -> Result<String> {
             if color.is_empty() {
                 "Clear color label".to_string()
             } else {
-                format!("Set color label to {}", color)
+                format!("Set color label to {color}")
             }
         }
         ActionKind::RunScript => {
@@ -186,12 +186,14 @@ pub fn preview(action: &Action, path: &Path) -> Result<String> {
             if first_line.is_empty() {
                 "Run script".to_string()
             } else {
-                format!("Run script: {}", first_line)
+                format!("Run script: {first_line}")
             }
         }
     })
 }
 
+// Precision loss is intentional: we only show one decimal place.
+#[allow(clippy::cast_precision_loss)]
 fn format_file_size(bytes: u64) -> String {
     const KB: u64 = 1_024;
     const MB: u64 = 1_024 * KB;
@@ -203,12 +205,12 @@ fn format_file_size(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.1}KB", bytes as f64 / KB as f64)
     } else {
-        format!("{}B", bytes)
+        format!("{bytes}B")
     }
 }
 
 /// Substitutes tokens in rename patterns.
-/// Supported tokens: {name}, {extension}, {date_created}, {date_modified}, {current_date}, {size}
+/// Supported tokens: `{name}`, `{extension}`, `{date_created}`, `{date_modified}`, `{current_date}`, `{size}`
 fn apply_rename_pattern(pattern: &str, path: &Path) -> Result<String> {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
@@ -234,7 +236,7 @@ fn apply_rename_pattern(pattern: &str, path: &Path) -> Result<String> {
     if ext.is_empty() || pattern.contains("{extension}") {
         Ok(result)
     } else {
-        Ok(format!("{}.{}", result, ext))
+        Ok(format!("{result}.{ext}"))
     }
 }
 

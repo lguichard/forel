@@ -101,6 +101,7 @@ pub fn rebuild(app: &AppHandle) {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().as_ref().to_string();
     match id.as_str() {
@@ -213,7 +214,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             .to_string();
         items.push(TrayItem::Plain(MenuItem::with_id(
             app,
-            &format!("folder_{}", folder.id),
+            format!("folder_{}", folder.id),
             folder_name,
             false,
             None::<&str>,
@@ -243,6 +244,6 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     )?));
 
     let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
-        items.iter().map(|i| i.as_menu_item()).collect();
+        items.iter().map(TrayItem::as_menu_item).collect();
     Menu::with_items(app, &refs)
 }

@@ -17,7 +17,6 @@ import {
 } from "../types";
 import { v4 as uuidv4 } from "uuid";
 import { ColorDotPicker, COLOR_LABELS } from "./ui/ColorDotPicker";
-import { Modal, ModalFooter, ModalHeader, ModalPanel } from "./ui/Modal";
 import { TagsInput } from "./ui/TagsInput";
 
 // Token definitions for the rename pattern editor
@@ -396,34 +395,18 @@ function ActionRow({
       )}
 
       {needsTag && (
-        <TagsListInput
+        <TagsInput
           tags={Array.isArray(action.params.tags) ? (action.params.tags as string[]) : []}
           onChange={(tags) => onChange({ params: { ...action.params, tags } })}
         />
       )}
 
       {needsColorLabel && (
-        <div className="tag-picker">
-          {COLOR_LABELS.map((label) => {
-            const selected = action.params.color === label;
-            return (
-              <button
-                key={label}
-                type="button"
-                className={`tag-dot${selected ? " tag-dot--active" : ""}`}
-                style={{ backgroundColor: MACOS_TAG_COLORS[label] }}
-                title={label}
-                onClick={() =>
-                  onChange({
-                    params: { ...action.params, color: selected ? "" : label },
-                  })
-                }
-              >
-                {selected && <Check size={9} color="#fff" strokeWidth={3} />}
-              </button>
-            );
-          })}
-        </div>
+        <ColorDotPicker
+          value={(action.params.color as string | undefined) ?? ""}
+          onChange={(color) => onChange({ params: { ...action.params, color } })}
+          allowDeselect
+        />
       )}
 
       {needsScript && (
@@ -698,73 +681,6 @@ function RenamePatternEditor({
     </div>
   );
 }
-
-// ---------- Multi-tag chips input (used by add_tag / remove_tag actions) ----------
-
-function TagsListInput({
-  tags,
-  onChange,
-}: {
-  tags: string[];
-  onChange: (tags: string[]) => void;
-}) {
-  const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const commit = () => {
-    const tag = input.trim();
-    if (tag && !tags.includes(tag)) onChange([...tags, tag]);
-    setInput("");
-  };
-
-  return (
-    <div className="tags-list-input" onClick={() => inputRef.current?.focus()}>
-      {tags.map((tag) => (
-        <span key={tag} className="tags-list-chip">
-          {tag}
-          <button
-            type="button"
-            className="tags-list-chip-remove"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange(tags.filter((t) => t !== tag));
-            }}
-          >
-            <X size={9} />
-          </button>
-        </span>
-      ))}
-      <input
-        ref={inputRef}
-        className="tags-list-inline-input"
-        value={input}
-        placeholder={tags.length === 0 ? "Add tags…" : ""}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === "Tab") {
-            e.preventDefault();
-            commit();
-          } else if (e.key === "Backspace" && !input && tags.length > 0) {
-            onChange(tags.slice(0, -1));
-          }
-        }}
-        onBlur={commit}
-      />
-    </div>
-  );
-}
-
-// ---------- Color dot map (used by color-label pickers) ----------
-
-const MACOS_TAG_COLORS: Record<string, string> = {
-  Red: "#FF3B30",
-  Orange: "#FF9500",
-  Yellow: "#FFCC00",
-  Green: "#34C759",
-  Blue: "#007AFF",
-  Purple: "#AF52DE",
-  Gray: "#8E8E93",
-};
 
 // ---------- Text tag picker ----------
 //
