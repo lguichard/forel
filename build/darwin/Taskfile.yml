@@ -55,9 +55,9 @@ tasks:
       GOOS: darwin
       CGO_ENABLED: 1
       GOARCH: '{{.ARCH | default ARCH}}'
-      CGO_CFLAGS: "-mmacosx-version-min=12.0"
-      CGO_LDFLAGS: "-mmacosx-version-min=12.0"
-      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      CGO_CFLAGS: "-mmacosx-version-min=14.0"
+      CGO_LDFLAGS: "-mmacosx-version-min=14.0"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
 
   build:universal:
     summary: Builds darwin universal binary (arm64 + amd64)
