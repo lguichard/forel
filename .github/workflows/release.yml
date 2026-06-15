@@ -1,0 +1,97 @@
+name: Release
+
+# Publishes two .dmg files (Intel + Apple Silicon) to a GitHub Release
+# whenever a version tag is pushed, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to create the release and upload assets
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            suffix: darwin-arm64
+          - target: x86_64-apple-darwin
+            suffix: darwin-x86_64
+    # Both builds run on the arm64 runner (macos-14).
+    # The x86_64 build cross-compiles via Rust's x86_64-apple-darwin target.
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build .app (${{ matrix.suffix }})
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles app --ci
+
+      - name: Create .dmg (${{ matrix.suffix }})
+        run: |
+          mkdir -p dist/release
+          app="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Forel.app"
+          if [ ! -d "$app" ]; then
+            echo "No app bundle found for target ${{ matrix.target }}"
+            exit 1
+          fi
+          staging="$(mktemp -d)"
+          cp -R "$app" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create \
+            -volname "Forel" \
+            -srcfolder "$staging" \
+            -ov -format UDZO \
+            "dist/release/Forel-${GITHUB_REF_NAME}-${{ matrix.suffix }}.dmg"
+          rm -rf "$staging"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/Forel-${{ github.ref_name }}-${{ matrix.suffix }}.dmg
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ## Forel ${{ github.ref_name }}
+
+            Two builds available — download the one that matches your Mac:
+            - `Forel-${{ github.ref_name }}-darwin-arm64.dmg` → Apple Silicon (M1 / M2 / M3 / M4)
+            - `Forel-${{ github.ref_name }}-darwin-x86_64.dmg` → Intel
+
+            Requires **macOS 14 Sonoma or later**.
+
+            ### Install
+            1. Download the correct .dmg for your Mac.
+            2. Open it and drag **Forel** into **Applications**.
+            3. First launch: the app is ad-hoc signed (not notarized), so right-click
+               **Forel.app → Open** and confirm. (Or run `xattr -cr /Applications/Forel.app`.)
