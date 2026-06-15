@@ -1,4 +1,14 @@
-import { Download, ExternalLink, Monitor, Moon, RefreshCw, Sun, X } from "lucide-react";
+import {
+  ChevronRight,
+  Download,
+  ExternalLink,
+  History as HistoryIcon,
+  Monitor,
+  Moon,
+  RefreshCw,
+  Sun,
+  X,
+} from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useForelStore } from "../store";
 import { Theme, useSettings } from "../store/settings";
@@ -29,7 +39,13 @@ function updateLabel(status: UpdateStatus) {
   }
 }
 
-export default function Settings({ onClose }: { onClose: () => void }) {
+export default function Settings({
+  onClose,
+  onOpenHistory,
+}: {
+  onClose: () => void;
+  onOpenHistory: () => void;
+}) {
   const { theme, setTheme } = useSettings();
   const updateStatus = useForelStore((s) => s.updateStatus);
   const updateInfo = useForelStore((s) => s.updateInfo);
@@ -118,6 +134,21 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </div>
+        </section>
+
+        <section className="settings-section">
+          <button className="settings-row settings-link-row" onClick={onOpenHistory}>
+            <div className="settings-label">
+              <span className="settings-label-title">Activity history</span>
+              <span className="settings-label-sub">
+                Review and undo actions run by your rules.
+              </span>
+            </div>
+            <div className="settings-link-icon">
+              <HistoryIcon size={15} />
+              <ChevronRight size={15} />
+            </div>
+          </button>
         </section>
 
         <section className="settings-section">

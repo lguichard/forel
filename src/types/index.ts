@@ -84,6 +84,27 @@ export interface PreviewResult {
   matches: FilePreview[];
 }
 
+export type HistoryStatus = "applied" | "undone";
+
+export interface HistoryEntry {
+  id: string;
+  batch_id: string;
+  rule_id: string | null;
+  rule_name: string;
+  action_kind: ActionKind;
+  original_path: string;
+  result_path: string;
+  undo: Record<string, unknown>;
+  reversible: boolean;
+  status: HistoryStatus;
+  created_at: string;
+}
+
+export interface UndoSummary {
+  undone: number;
+  failed: string[];
+}
+
 export interface UpdateInfo {
   current_version: string;
   latest_version: string;

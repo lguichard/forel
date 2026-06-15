@@ -5,10 +5,11 @@ use std::{
 
 use super::{
     action, condition,
-    model::{ActionKind, ConditionMatch, Rule},
+    model::{ActionKind, ConditionMatch, HistoryEntry, HistoryStatus, Rule},
 };
 use anyhow::Result;
 use serde::Serialize;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ScopedPath {
@@ -36,18 +37,25 @@ pub struct PreviewResult {
 }
 
 /// Evaluates all enabled rules against `path` and executes matching ones.
-/// Returns a list of rule names that matched.
-pub fn evaluate_file(path: &Path, depth: usize, rules: &[Rule]) -> Vec<String> {
+/// Returns the names of rules that matched and the history entries produced by
+/// their actions (grouped under `batch_id`).
+pub fn evaluate_file(
+    path: &Path,
+    depth: usize,
+    rules: &[Rule],
+    batch_id: &str,
+) -> (Vec<String>, Vec<HistoryEntry>) {
     let mut matched = Vec::new();
+    let mut history = Vec::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
         if rule_matches_at_depth(rule, path, depth) {
-            execute_actions(rule, path);
+            history.extend(execute_actions(rule, path, batch_id));
             matched.push(rule.name.clone());
         }
     }
 
-    matched
+    (matched, history)
 }
 
 pub fn preview_file(path: &Path, depth: usize, rules: &[Rule]) -> Option<FilePreview> {
@@ -178,18 +186,36 @@ pub fn max_rule_depth(rules: &[Rule]) -> Option<usize> {
         .max()
 }
 
-fn execute_actions(rule: &Rule, path: &Path) {
+fn execute_actions(rule: &Rule, path: &Path, batch_id: &str) -> Vec<HistoryEntry> {
     let mut sorted = rule.actions.clone();
     sorted.sort_by_key(|a| a.position);
 
+    let mut history = Vec::new();
     let mut current: PathBuf = path.to_path_buf();
     for act in &sorted {
         let is_terminal = matches!(
             act.kind,
             ActionKind::MoveToFolder | ActionKind::MoveToTrash | ActionKind::Delete
         );
+        let original = current.clone();
         match action::execute(act, &current) {
-            Ok(new_path) => current = new_path,
+            Ok(applied) => {
+                let undo = serde_json::to_value(&applied.undo).unwrap_or(serde_json::Value::Null);
+                history.push(HistoryEntry {
+                    id: Uuid::new_v4().to_string(),
+                    batch_id: batch_id.to_string(),
+                    rule_id: Some(rule.id.clone()),
+                    rule_name: rule.name.clone(),
+                    action_kind: act.kind.clone(),
+                    original_path: original.to_string_lossy().to_string(),
+                    result_path: applied.new_path.to_string_lossy().to_string(),
+                    reversible: applied.undo.is_reversible(),
+                    undo,
+                    status: HistoryStatus::Applied,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                });
+                current = applied.new_path;
+            },
             Err(e) => log::error!(
                 "action '{:?}' in rule '{}' failed on {}: {}",
                 act.kind,
@@ -202,6 +228,8 @@ fn execute_actions(rule: &Rule, path: &Path) {
             break;
         }
     }
+
+    history
 }
 
 #[cfg(test)]
@@ -310,14 +338,17 @@ mod tests {
             rule("empty", true, ConditionMatch::All, Vec::new()),
         ];
 
+        let (matched, history) = evaluate_file(&file, 0, &rules, "batch");
         assert_eq!(
-            evaluate_file(&file, 0, &rules),
+            matched,
             vec![
                 "all matched".to_string(),
                 "any matched".to_string(),
                 "empty".to_string(),
             ]
         );
+        // No actions configured on these rules, so no history is produced.
+        assert!(history.is_empty());
     }
 
     #[test]
@@ -339,7 +370,9 @@ mod tests {
             preview_file(&file, 0, &[matching_rule.clone()]).expect("preview before apply");
         assert_eq!(before.rules[0].actions.len(), 2);
 
-        evaluate_file(&file, 0, &[matching_rule.clone()]);
+        let (_, history) = evaluate_file(&file, 0, &[matching_rule.clone()], "batch");
+        assert_eq!(history.len(), 2);
+        assert!(history.iter().all(|entry| entry.reversible));
         assert!(preview_file(&file, 0, &[matching_rule]).is_none());
     }
 
@@ -397,11 +430,11 @@ mod tests {
         shallow_rule.recursion_depth = Some(0);
 
         assert_eq!(
-            evaluate_file(&direct, 0, &[shallow_rule.clone()]),
+            evaluate_file(&direct, 0, &[shallow_rule.clone()], "batch").0,
             vec!["shallow".to_string()]
         );
         assert_eq!(
-            evaluate_file(&nested, 1, &[shallow_rule]),
+            evaluate_file(&nested, 1, &[shallow_rule], "batch").0,
             Vec::<String>::new()
         );
     }

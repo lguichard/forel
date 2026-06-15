@@ -1,117 +1,201 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
 
 use super::model::{Action, ActionKind};
 
-/// Executes the action on the file at `path`.
-///
-/// Returns the file's new path. For actions that move or rename the file this
-/// will differ from `path`; for all other actions it equals `path`.
-pub fn execute(action: &Action, path: &Path) -> Result<PathBuf> {
+/// Outcome of executing an action: where the file ended up, plus the
+/// information needed to reverse the change later.
+pub struct Applied {
+    pub new_path: PathBuf,
+    pub undo: Undo,
+}
+
+/// Reversal recipe for an executed action. Serialised to JSON and stored in the
+/// action history so the change can be undone after the fact.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Undo {
+    /// File was relocated; undo by moving `to` back to `from`.
+    Move { from: PathBuf, to: PathBuf },
+    /// A copy was created; undo by deleting it.
+    Copy { copy: PathBuf },
+    /// Tags were added; undo by removing exactly these.
+    AddTags { path: PathBuf, tags: Vec<String> },
+    /// Tags were removed; undo by re-adding exactly these.
+    RemoveTags { path: PathBuf, tags: Vec<String> },
+    /// Colour label changed; undo by restoring `previous` ("" = none).
+    Color { path: PathBuf, previous: String },
+    /// Not reversible (e.g. a script with arbitrary side effects).
+    None,
+}
+
+impl Undo {
+    pub fn is_reversible(&self) -> bool {
+        !matches!(self, Undo::None)
+    }
+}
+
+/// Executes the action on the file at `path`, returning the new path and an
+/// [`Undo`] describing how to reverse it.
+pub fn execute(action: &Action, path: &Path) -> Result<Applied> {
     match &action.kind {
         ActionKind::MoveToFolder => {
-            let dest_dir = action
-                .params
-                .get("destination")
-                .and_then(|v| v.as_str())
-                .context("MoveToFolder requires 'destination' param")?;
-            let dest_dir = Path::new(dest_dir);
-            std::fs::create_dir_all(dest_dir)
-                .with_context(|| format!("create destination dir {}", dest_dir.display()))?;
-            let file_name = path.file_name().context("no file name")?;
-            let dest = unique_dest(dest_dir, file_name);
-            std::fs::rename(path, &dest)
-                .with_context(|| format!("move {} → {}", path.display(), dest.display()))?;
-            Ok(dest)
+            let dest_dir = str_param(action, "destination", "MoveToFolder")?;
+            move_into_dir(path, Path::new(dest_dir))
         },
+        ActionKind::CopyToFolder => copy_to_folder(action, path),
+        ActionKind::Rename => rename_file(action, path),
+        // Delete is routed through the Trash so it stays reversible.
+        ActionKind::MoveToTrash | ActionKind::Delete => move_into_dir(path, &trash_dir()?),
+        ActionKind::AddTag => apply_tags(action, path, true),
+        ActionKind::RemoveTag => apply_tags(action, path, false),
+        ActionKind::SetColorLabel => set_color(action, path),
+        ActionKind::RunScript => run_script(action, path),
+    }
+}
 
-        ActionKind::CopyToFolder => {
-            let dest_dir = action
-                .params
-                .get("destination")
-                .and_then(|v| v.as_str())
-                .context("CopyToFolder requires 'destination' param")?;
-            let dest_dir = Path::new(dest_dir);
-            std::fs::create_dir_all(dest_dir)
-                .with_context(|| format!("create destination dir {}", dest_dir.display()))?;
-            let file_name = path.file_name().context("no file name")?;
-            let dest = unique_dest(dest_dir, file_name);
-            std::fs::copy(path, &dest)
-                .with_context(|| format!("copy {} → {}", path.display(), dest.display()))?;
-            Ok(path.to_path_buf())
-        },
+fn str_param<'a>(action: &'a Action, key: &str, kind: &str) -> Result<&'a str> {
+    action
+        .params
+        .get(key)
+        .and_then(|v| v.as_str())
+        .with_context(|| format!("{kind} requires '{key}' param"))
+}
 
-        ActionKind::Rename => {
-            let pattern = action
-                .params
-                .get("pattern")
-                .and_then(|v| v.as_str())
-                .context("Rename requires 'pattern' param")?;
-            let new_name = apply_rename_pattern(pattern, path)?;
-            let dest = path.with_file_name(new_name);
-            std::fs::rename(path, &dest)
-                .with_context(|| format!("rename {} → {}", path.display(), dest.display()))?;
-            Ok(dest)
-        },
+/// Moves `path` into `dest_dir` (created if needed), avoiding name collisions.
+fn move_into_dir(path: &Path, dest_dir: &Path) -> Result<Applied> {
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("create destination dir {}", dest_dir.display()))?;
+    let file_name = path.file_name().context("no file name")?;
+    let dest = unique_dest(dest_dir, file_name);
+    std::fs::rename(path, &dest)
+        .with_context(|| format!("move {} → {}", path.display(), dest.display()))?;
+    Ok(Applied {
+        new_path: dest.clone(),
+        undo: Undo::Move { from: path.to_path_buf(), to: dest },
+    })
+}
 
-        ActionKind::MoveToTrash => {
-            let file_name = path.file_name().context("no file name")?;
-            let trash = trash_dir()?;
-            let dest = unique_dest(&trash, file_name);
-            std::fs::rename(path, &dest)?;
-            Ok(dest)
-        },
+fn copy_to_folder(action: &Action, path: &Path) -> Result<Applied> {
+    let dest_dir = Path::new(str_param(action, "destination", "CopyToFolder")?);
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("create destination dir {}", dest_dir.display()))?;
+    let file_name = path.file_name().context("no file name")?;
+    let dest = unique_dest(dest_dir, file_name);
+    std::fs::copy(path, &dest)
+        .with_context(|| format!("copy {} → {}", path.display(), dest.display()))?;
+    Ok(Applied {
+        new_path: path.to_path_buf(),
+        undo: Undo::Copy { copy: dest },
+    })
+}
 
-        ActionKind::Delete => {
-            if path.is_dir() {
-                std::fs::remove_dir_all(path)?;
-            } else {
-                std::fs::remove_file(path)?;
+fn rename_file(action: &Action, path: &Path) -> Result<Applied> {
+    let pattern = str_param(action, "pattern", "Rename")?;
+    let new_name = apply_rename_pattern(pattern, path)?;
+    let dest = path.with_file_name(new_name);
+    std::fs::rename(path, &dest)
+        .with_context(|| format!("rename {} → {}", path.display(), dest.display()))?;
+    Ok(Applied {
+        new_path: dest.clone(),
+        undo: Undo::Move { from: path.to_path_buf(), to: dest },
+    })
+}
+
+/// Adds (`add = true`) or removes Finder tags, capturing exactly the tags that
+/// actually changed so the undo only touches those.
+fn apply_tags(action: &Action, path: &Path, add: bool) -> Result<Applied> {
+    let existing = read_file_tags(path);
+    let mut changed: Vec<String> = Vec::new();
+    for tag in param_tags(action) {
+        let present = existing.iter().any(|t| t == tag);
+        if present != add && !changed.iter().any(|t| t == tag) {
+            changed.push(tag.to_string());
+        }
+        apply_file_tag(path, tag, add)?;
+    }
+    let undo = if add {
+        Undo::AddTags { path: path.to_path_buf(), tags: changed }
+    } else {
+        Undo::RemoveTags { path: path.to_path_buf(), tags: changed }
+    };
+    Ok(Applied { new_path: path.to_path_buf(), undo })
+}
+
+fn set_color(action: &Action, path: &Path) -> Result<Applied> {
+    let color = action
+        .params
+        .get("color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let previous = current_color_name(path);
+    set_color_label(path, color)?;
+    Ok(Applied {
+        new_path: path.to_path_buf(),
+        undo: Undo::Color { path: path.to_path_buf(), previous },
+    })
+}
+
+fn run_script(action: &Action, path: &Path) -> Result<Applied> {
+    let script = str_param(action, "script", "RunScript")?;
+    let status = std::process::Command::new("bash")
+        .args(["-c", script])
+        .env("FOREL_FILE", path)
+        .status()
+        .context("failed to launch bash")?;
+    if !status.success() {
+        bail!("script exited with status {status}");
+    }
+    Ok(Applied {
+        new_path: path.to_path_buf(),
+        undo: Undo::None,
+    })
+}
+
+/// Reverses a previously executed action using its stored [`Undo`].
+pub fn revert(undo: &Undo) -> Result<()> {
+    match undo {
+        Undo::Move { from, to } => {
+            if from.exists() {
+                bail!(
+                    "cannot restore {}: a file already exists there",
+                    from.display()
+                );
             }
-            Ok(path.to_path_buf())
-        },
-
-        ActionKind::AddTag => {
-            for tag in param_tags(action) {
-                apply_file_tag(path, tag, true)?;
+            if let Some(parent) = from.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("recreate parent {}", parent.display()))?;
             }
-            Ok(path.to_path_buf())
+            std::fs::rename(to, from)
+                .with_context(|| format!("restore {} → {}", to.display(), from.display()))?;
+            Ok(())
         },
-
-        ActionKind::RemoveTag => {
-            for tag in param_tags(action) {
+        Undo::Copy { copy } => {
+            if copy.exists() {
+                if copy.is_dir() {
+                    std::fs::remove_dir_all(copy)?;
+                } else {
+                    std::fs::remove_file(copy)?;
+                }
+            }
+            Ok(())
+        },
+        Undo::AddTags { path, tags } => {
+            for tag in tags {
                 apply_file_tag(path, tag, false)?;
             }
-            Ok(path.to_path_buf())
+            Ok(())
         },
-
-        ActionKind::SetColorLabel => {
-            let color = action
-                .params
-                .get("color")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            set_color_label(path, color)?;
-            Ok(path.to_path_buf())
-        },
-
-        ActionKind::RunScript => {
-            let script = action
-                .params
-                .get("script")
-                .and_then(|v| v.as_str())
-                .context("RunScript requires 'script' param")?;
-            let status = std::process::Command::new("bash")
-                .args(["-c", script])
-                .env("FOREL_FILE", path)
-                .status()
-                .context("failed to launch bash")?;
-            if !status.success() {
-                bail!("script exited with status {status}");
+        Undo::RemoveTags { path, tags } => {
+            for tag in tags {
+                apply_file_tag(path, tag, true)?;
             }
-            Ok(path.to_path_buf())
+            Ok(())
         },
+        Undo::Color { path, previous } => set_color_label(path, previous),
+        Undo::None => bail!("this action cannot be undone"),
     }
 }
 
@@ -145,7 +229,7 @@ pub fn preview(action: &Action, path: &Path) -> Result<String> {
             format!("Rename to {new_name}")
         },
         ActionKind::MoveToTrash => "Move to Trash".to_string(),
-        ActionKind::Delete => "Delete permanently".to_string(),
+        ActionKind::Delete => "Delete (move to Trash)".to_string(),
         ActionKind::AddTag => {
             let tags = param_tags(action);
             if tags.is_empty() {
@@ -542,5 +626,122 @@ mod tests {
         assert!(!file.exists());
         assert!(dir.path.join("report-archived.txt").exists());
         assert!(!dir.path.join("report-archived.txt.txt").exists());
+    }
+
+    #[test]
+    fn revert_move_restores_file_to_original_location() {
+        let dir = TestDir::new();
+        let file = dir.file("note.txt", "hello");
+        let dest = dir.path.join("Archive");
+        let move_action =
+            test_action(ActionKind::MoveToFolder, json!({ "destination": dest.to_string_lossy() }));
+
+        let applied = execute(&move_action, &file).expect("move file");
+        assert!(!file.exists());
+        assert!(applied.new_path.exists());
+
+        revert(&applied.undo).expect("undo move");
+        assert!(file.exists());
+        assert!(!applied.new_path.exists());
+    }
+
+    #[test]
+    fn revert_rename_restores_original_name() {
+        let dir = TestDir::new();
+        let file = dir.file("report.txt", "hi");
+        let rename = test_action(ActionKind::Rename, json!({ "pattern": "renamed" }));
+
+        let applied = execute(&rename, &file).expect("rename");
+        assert!(!file.exists());
+        assert!(dir.path.join("renamed.txt").exists());
+
+        revert(&applied.undo).expect("undo rename");
+        assert!(file.exists());
+        assert!(!dir.path.join("renamed.txt").exists());
+    }
+
+    #[test]
+    fn revert_copy_deletes_the_created_copy() {
+        let dir = TestDir::new();
+        let file = dir.file("data.bin", "x");
+        let dest = dir.path.join("Backup");
+        let copy_action =
+            test_action(ActionKind::CopyToFolder, json!({ "destination": dest.to_string_lossy() }));
+
+        let applied = execute(&copy_action, &file).expect("copy file");
+        assert!(file.exists());
+        assert!(dest.join("data.bin").exists());
+
+        revert(&applied.undo).expect("undo copy");
+        assert!(file.exists());
+        assert!(!dest.join("data.bin").exists());
+    }
+
+    #[test]
+    fn revert_add_tag_only_removes_newly_added_tags() {
+        let dir = TestDir::new();
+        let file = dir.file("doc.txt", "x");
+        execute(
+            &test_action(ActionKind::AddTag, json!({ "tags": ["Existing"] })),
+            &file,
+        )
+        .expect("seed existing tag");
+
+        let add = test_action(ActionKind::AddTag, json!({ "tags": ["Existing", "Fresh"] }));
+        let applied = execute(&add, &file).expect("add tags");
+        assert_eq!(
+            read_file_tags(&file),
+            vec!["Existing".to_string(), "Fresh".to_string()]
+        );
+
+        revert(&applied.undo).expect("undo add tag");
+        // Only the genuinely-new "Fresh" tag is removed; "Existing" is preserved.
+        assert_eq!(read_file_tags(&file), vec!["Existing".to_string()]);
+    }
+
+    #[test]
+    fn revert_remove_tag_restores_removed_tags() {
+        let dir = TestDir::new();
+        let file = dir.file("doc.txt", "x");
+        execute(
+            &test_action(ActionKind::AddTag, json!({ "tags": ["Keep"] })),
+            &file,
+        )
+        .expect("seed tag");
+
+        let remove = test_action(ActionKind::RemoveTag, json!({ "tags": ["Keep"] }));
+        let applied = execute(&remove, &file).expect("remove tag");
+        assert!(read_file_tags(&file).is_empty());
+
+        revert(&applied.undo).expect("undo remove tag");
+        assert_eq!(read_file_tags(&file), vec!["Keep".to_string()]);
+    }
+
+    #[test]
+    fn revert_color_label_restores_previous_color() {
+        let dir = TestDir::new();
+        let file = dir.file("image.png", "png");
+        execute(
+            &test_action(ActionKind::SetColorLabel, json!({ "color": "Red" })),
+            &file,
+        )
+        .expect("set initial red");
+
+        let set_blue = test_action(ActionKind::SetColorLabel, json!({ "color": "Blue" }));
+        let applied = execute(&set_blue, &file).expect("set blue");
+        assert_eq!(read_file_tags(&file), vec!["Blue\n4".to_string()]);
+
+        revert(&applied.undo).expect("undo color");
+        assert_eq!(read_file_tags(&file), vec!["Red\n6".to_string()]);
+    }
+
+    #[test]
+    fn revert_run_script_is_rejected_as_irreversible() {
+        let dir = TestDir::new();
+        let file = dir.file("x.txt", "x");
+        let script = test_action(ActionKind::RunScript, json!({ "script": "true" }));
+        let applied = execute(&script, &file).expect("run script");
+        assert!(!applied.undo.is_reversible());
+        assert!(revert(&applied.undo).is_err());
     }
 }

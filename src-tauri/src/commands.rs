@@ -4,11 +4,14 @@
 
 use tauri::{AppHandle, State};
 
+use serde::Serialize;
+
 use crate::{
     db,
     rules::{
+        action::{self, Undo},
         engine::{self, PreviewResult},
-        model::{Rule, WatchedFolder},
+        model::{HistoryEntry, Rule, WatchedFolder},
     },
     state::AppState,
     tray,
@@ -192,17 +195,23 @@ pub fn run_rule(rule_id: String, state: State<AppState>) -> Result<Vec<String>, 
         return Ok(Vec::new());
     };
 
+    let batch_id = uuid::Uuid::new_v4().to_string();
     let mut matched = Vec::new();
+    let mut history = Vec::new();
     let max_depth = engine::max_rule_depth(std::slice::from_ref(&rule));
     let entries = engine::walk_entries(std::path::Path::new(&folder_path), max_depth)
         .map_err(|e| e.to_string())?;
     for entry in entries {
         let path = std::path::Path::new(&entry.path);
-        matched.extend(engine::evaluate_file(
-            path,
-            entry.depth,
-            std::slice::from_ref(&rule),
-        ));
+        let (names, records) =
+            engine::evaluate_file(path, entry.depth, std::slice::from_ref(&rule), &batch_id);
+        matched.extend(names);
+        history.extend(records);
+    }
+
+    if !history.is_empty() {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db::insert_history_entries(&conn, &history).map_err(|e| e.to_string())?;
     }
 
     Ok(matched)
@@ -224,15 +233,24 @@ pub fn run_rules_now(folder_id: String, state: State<AppState>) -> Result<usize,
         (path, rules)
     };
 
+    let batch_id = uuid::Uuid::new_v4().to_string();
     let mut files_modified = 0;
+    let mut history = Vec::new();
     let max_depth = engine::max_rule_depth(&rules);
     let entries = engine::walk_entries(std::path::Path::new(&folder_path), max_depth)
         .map_err(|e| e.to_string())?;
     for entry in entries {
         let path = std::path::Path::new(&entry.path);
-        if !engine::evaluate_file(path, entry.depth, &rules).is_empty() {
+        let (names, records) = engine::evaluate_file(path, entry.depth, &rules, &batch_id);
+        if !names.is_empty() {
             files_modified += 1;
         }
+        history.extend(records);
+    }
+
+    if !history.is_empty() {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db::insert_history_entries(&conn, &history).map_err(|e| e.to_string())?;
     }
 
     Ok(files_modified)
@@ -325,4 +343,82 @@ pub fn add_custom_tag(name: String, state: State<AppState>) -> Result<(), String
     }
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     db::insert_custom_tag(&conn, &name).map_err(|e| e.to_string())
+}
+
+// ---------- Action history ----------
+
+#[derive(Serialize)]
+pub struct UndoSummary {
+    pub undone: usize,
+    pub failed: Vec<String>,
+}
+
+/// Returns the full action history, newest first.
+#[tauri::command]
+pub fn get_history(state: State<AppState>) -> Result<Vec<HistoryEntry>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db::list_history(&conn).map_err(|e| e.to_string())
+}
+
+/// Reverses a single history entry, then marks it as undone.
+#[tauri::command]
+pub fn undo_entry(id: String, state: State<AppState>) -> Result<(), String> {
+    let entry = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db::get_history_entry(&conn, &id).map_err(|e| e.to_string())?
+    };
+
+    revert_entry(&entry)?;
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db::mark_history_undone(&conn, &id).map_err(|e| e.to_string())
+}
+
+/// Reverses every still-applied entry of a batch in LIFO order (later actions
+/// are undone before earlier ones, since they chain). Best-effort: a failure on
+/// one entry does not abort the rest; failures are collected and reported.
+#[tauri::command]
+pub fn undo_batch(batch_id: String, state: State<AppState>) -> Result<UndoSummary, String> {
+    let entries = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        db::list_history_batch(&conn, &batch_id).map_err(|e| e.to_string())?
+    };
+
+    let mut undone = 0;
+    let mut failed = Vec::new();
+    for entry in entries
+        .into_iter()
+        .rev()
+        .filter(|e| matches!(e.status, crate::rules::model::HistoryStatus::Applied))
+    {
+        match revert_entry(&entry) {
+            Ok(()) => {
+                let conn = state.db.lock().map_err(|e| e.to_string())?;
+                db::mark_history_undone(&conn, &entry.id).map_err(|e| e.to_string())?;
+                undone += 1;
+            },
+            Err(e) => failed.push(format!("{}: {e}", entry.original_path)),
+        }
+    }
+
+    Ok(UndoSummary { undone, failed })
+}
+
+/// Deletes the entire history. Does not touch any files.
+#[tauri::command]
+pub fn clear_history(state: State<AppState>) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    db::clear_history(&conn).map_err(|e| e.to_string())
+}
+
+fn revert_entry(entry: &HistoryEntry) -> Result<(), String> {
+    if !entry.reversible {
+        return Err("this action cannot be undone".into());
+    }
+    if matches!(entry.status, crate::rules::model::HistoryStatus::Undone) {
+        return Err("this action was already undone".into());
+    }
+    let undo: Undo = serde_json::from_value(entry.undo.clone())
+        .map_err(|e| format!("corrupt undo data: {e}"))?;
+    action::revert(&undo).map_err(|e| e.to_string())
 }

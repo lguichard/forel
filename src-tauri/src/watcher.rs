@@ -76,9 +76,17 @@ fn on_event(event: &Event, db: &Arc<Mutex<Connection>>) {
         let Some(depth) = engine::path_depth(std::path::Path::new(&folder.path), path) else {
             continue;
         };
-        let matched = engine::evaluate_file(path, depth, &rules);
+        let batch_id = uuid::Uuid::new_v4().to_string();
+        let (matched, history) = engine::evaluate_file(path, depth, &rules, &batch_id);
         for rule_name in matched {
             log::info!("Rule '{rule_name}' matched {}", path.display());
+        }
+        if !history.is_empty() {
+            if let Ok(conn) = db.lock() {
+                if let Err(e) = crate::db::insert_history_entries(&conn, &history) {
+                    log::error!("failed to record action history: {e}");
+                }
+            }
         }
     }
 }

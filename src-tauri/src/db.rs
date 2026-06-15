@@ -5,7 +5,8 @@ use std::path::Path;
 mod migrations;
 
 use crate::rules::model::{
-    Action, ActionKind, Condition, ConditionKind, ConditionMatch, Operator, Rule, WatchedFolder,
+    Action, ActionKind, Condition, ConditionKind, ConditionMatch, HistoryEntry, HistoryStatus,
+    Operator, Rule, WatchedFolder,
 };
 
 pub(crate) fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
@@ -58,7 +59,23 @@ pub fn init(conn: &Connection) -> Result<()> {
 
          CREATE TABLE IF NOT EXISTS custom_tags (
              name TEXT PRIMARY KEY
-         );",
+         );
+
+         CREATE TABLE IF NOT EXISTS action_history (
+             id            TEXT PRIMARY KEY,
+             batch_id      TEXT NOT NULL,
+             rule_id       TEXT,
+             rule_name     TEXT NOT NULL,
+             action_kind   TEXT NOT NULL,
+             original_path TEXT NOT NULL,
+             result_path   TEXT NOT NULL,
+             undo          TEXT NOT NULL,
+             reversible    INTEGER NOT NULL DEFAULT 0,
+             status        TEXT NOT NULL DEFAULT 'applied',
+             created_at    TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS idx_action_history_batch ON action_history(batch_id);
+         CREATE INDEX IF NOT EXISTS idx_action_history_created ON action_history(created_at);",
     )
     .context("schema init")?;
 
@@ -80,6 +97,106 @@ pub fn insert_custom_tag(conn: &Connection, name: &str) -> Result<()> {
         "INSERT OR IGNORE INTO custom_tags (name) VALUES (?1)",
         params![name],
     )?;
+    Ok(())
+}
+
+// ---------- Action history ----------
+
+fn history_status_to_str(status: HistoryStatus) -> &'static str {
+    match status {
+        HistoryStatus::Applied => "applied",
+        HistoryStatus::Undone => "undone",
+    }
+}
+
+fn parse_history_status(s: &str) -> HistoryStatus {
+    match s {
+        "undone" => HistoryStatus::Undone,
+        _ => HistoryStatus::Applied,
+    }
+}
+
+fn row_to_history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
+    let undo_str: String = row.get(7)?;
+    Ok(HistoryEntry {
+        id: row.get(0)?,
+        batch_id: row.get(1)?,
+        rule_id: row.get(2)?,
+        rule_name: row.get(3)?,
+        action_kind: parse_action_kind(row.get::<_, String>(4)?.as_str()),
+        original_path: row.get(5)?,
+        result_path: row.get(6)?,
+        undo: serde_json::from_str(&undo_str).unwrap_or(serde_json::Value::Null),
+        reversible: row.get::<_, i64>(8)? != 0,
+        status: parse_history_status(row.get::<_, String>(9)?.as_str()),
+        created_at: row.get(10)?,
+    })
+}
+
+const HISTORY_COLUMNS: &str = "id, batch_id, rule_id, rule_name, action_kind, original_path, \
+     result_path, undo, reversible, status, created_at";
+
+pub fn insert_history_entries(conn: &Connection, entries: &[HistoryEntry]) -> Result<()> {
+    for entry in entries {
+        conn.execute(
+            "INSERT INTO action_history
+             (id, batch_id, rule_id, rule_name, action_kind, original_path, result_path, undo, reversible, status, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![
+                entry.id,
+                entry.batch_id,
+                entry.rule_id,
+                entry.rule_name,
+                action_kind_to_str(&entry.action_kind),
+                entry.original_path,
+                entry.result_path,
+                entry.undo.to_string(),
+                i64::from(entry.reversible),
+                history_status_to_str(entry.status),
+                entry.created_at
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn list_history(conn: &Connection) -> Result<Vec<HistoryEntry>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {HISTORY_COLUMNS} FROM action_history ORDER BY created_at DESC"
+    ))?;
+    let rows = stmt.query_map([], row_to_history_entry)?;
+    rows.collect::<rusqlite::Result<_>>()
+        .context("list history")
+}
+
+pub fn get_history_entry(conn: &Connection, id: &str) -> Result<HistoryEntry> {
+    conn.query_row(
+        &format!("SELECT {HISTORY_COLUMNS} FROM action_history WHERE id=?1"),
+        params![id],
+        row_to_history_entry,
+    )
+    .context("get history entry")
+}
+
+pub fn list_history_batch(conn: &Connection, batch_id: &str) -> Result<Vec<HistoryEntry>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {HISTORY_COLUMNS} FROM action_history WHERE batch_id=?1 ORDER BY created_at"
+    ))?;
+    let rows = stmt.query_map(params![batch_id], row_to_history_entry)?;
+    rows.collect::<rusqlite::Result<_>>()
+        .context("list history batch")
+}
+
+pub fn mark_history_undone(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE action_history SET status='undone' WHERE id=?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+pub fn clear_history(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM action_history", [])?;
     Ok(())
 }
 
@@ -575,7 +692,7 @@ mod tests {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read schema version");
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
 
         let has_column = table_has_column(&conn, "rules", "recursion_depth")
             .expect("inspect migrated schema");
@@ -585,10 +702,70 @@ mod tests {
     #[test]
     fn init_rejects_newer_schema_versions() {
         let conn = Connection::open_in_memory().expect("open in-memory database");
-        create_schema(&conn, 2, true);
+        create_schema(&conn, 3, true);
 
         let err = init(&conn).expect_err("reject newer schema");
         assert!(err.to_string().contains("newer than supported"));
+    }
+
+    fn history_entry(batch: &str, kind: ActionKind, reversible: bool) -> HistoryEntry {
+        HistoryEntry {
+            id: Uuid::new_v4().to_string(),
+            batch_id: batch.to_string(),
+            rule_id: Some("rule".to_string()),
+            rule_name: "demo".to_string(),
+            action_kind: kind,
+            original_path: "/from/file.txt".to_string(),
+            result_path: "/to/file.txt".to_string(),
+            undo: json!({ "kind": "none" }),
+            reversible,
+            status: HistoryStatus::Applied,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn history_round_trip_insert_list_mark_and_clear() {
+        let conn = connection();
+        let entries = vec![
+            history_entry("batch-1", ActionKind::MoveToFolder, true),
+            history_entry("batch-1", ActionKind::RunScript, false),
+        ];
+        insert_history_entries(&conn, &entries).expect("insert history");
+
+        let listed = list_history(&conn).expect("list history");
+        assert_eq!(listed.len(), 2);
+
+        let batch = list_history_batch(&conn, "batch-1").expect("list batch");
+        assert_eq!(batch.len(), 2);
+
+        let first = &entries[0];
+        mark_history_undone(&conn, &first.id).expect("mark undone");
+        let reloaded = get_history_entry(&conn, &first.id).expect("get entry");
+        assert_eq!(reloaded.status, HistoryStatus::Undone);
+        assert_eq!(reloaded.action_kind, ActionKind::MoveToFolder);
+        assert!(reloaded.reversible);
+
+        clear_history(&conn).expect("clear history");
+        assert!(list_history(&conn).expect("list after clear").is_empty());
+    }
+
+    #[test]
+    fn migrate_action_history_adds_table_to_legacy_schema() {
+        let conn = Connection::open_in_memory().expect("open in-memory database");
+        create_schema(&conn, 1, true);
+
+        init(&conn).expect("run migrations");
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read schema version");
+        assert_eq!(version, 2);
+
+        // The table is now usable.
+        insert_history_entries(&conn, &[history_entry("b", ActionKind::Rename, true)])
+            .expect("insert into migrated table");
+        assert_eq!(list_history(&conn).expect("list").len(), 1);
     }
 
     #[test]

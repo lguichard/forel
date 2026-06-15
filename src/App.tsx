@@ -1,6 +1,7 @@
-import { Settings as SettingsIcon } from "lucide-react";
+import { History as HistoryIcon, Settings as SettingsIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
+import History from "./components/History";
 import RuleList from "./components/RuleList";
 import Settings from "./components/Settings";
 import Sidebar from "./components/Sidebar";
@@ -12,6 +13,7 @@ export default function App() {
   const fetchFolders = useForelStore((s) => s.fetchFolders);
   const checkForUpdates = useForelStore((s) => s.checkForUpdates);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     void fetchFolders();
@@ -48,13 +50,22 @@ export default function App() {
           <img className="titlebar-icon" src="/forel-icon.png" alt="" />
           <span className="titlebar-title">Forel</span>
         </div>
-        <button
-          className="titlebar-btn"
-          onClick={() => setShowSettings(true)}
-          title="Settings (⌘,)"
-        >
-          <SettingsIcon size={15} />
-        </button>
+        <div className="titlebar-actions">
+          <button
+            className="titlebar-btn"
+            onClick={() => setShowHistory(true)}
+            title="Activity"
+          >
+            <HistoryIcon size={15} />
+          </button>
+          <button
+            className="titlebar-btn"
+            onClick={() => setShowSettings(true)}
+            title="Settings (⌘,)"
+          >
+            <SettingsIcon size={15} />
+          </button>
+        </div>
       </div>
 
       <div className="layout">
@@ -62,7 +73,16 @@ export default function App() {
         <RuleList />
       </div>
 
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      {showHistory && <History onClose={() => setShowHistory(false)} />}
+      {showSettings && (
+        <Settings
+          onClose={() => setShowSettings(false)}
+          onOpenHistory={() => {
+            setShowSettings(false);
+            setShowHistory(true);
+          }}
+        />
+      )}
     </div>
   );
 }

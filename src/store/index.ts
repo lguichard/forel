@@ -4,8 +4,10 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 import {
+  HistoryEntry,
   PreviewResult,
   Rule,
+  UndoSummary,
   UpdateInfo,
   UpdateStatus,
   WatchedFolder,
@@ -21,6 +23,8 @@ interface ForelState {
   selectedFolderId: string | null;
   rules: Rule[];
   loading: boolean;
+  history: HistoryEntry[];
+  historyLoading: boolean;
   updateStatus: UpdateStatus;
   updateInfo: UpdateInfo | null;
   pendingUpdate: Update | null;
@@ -42,6 +46,12 @@ interface ForelState {
   runRulesNow: (folderId: string) => Promise<number>;
   previewRules: (folderId: string) => Promise<PreviewResult>;
 
+  // History actions
+  fetchHistory: () => Promise<void>;
+  undoEntry: (id: string) => Promise<void>;
+  undoBatch: (batchId: string) => Promise<UndoSummary>;
+  clearHistory: () => Promise<void>;
+
   // Update actions
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
@@ -52,6 +62,8 @@ export const useForelStore = create<ForelState>((set, get) => ({
   selectedFolderId: null,
   rules: [],
   loading: false,
+  history: [],
+  historyLoading: false,
   updateStatus: "idle",
   updateInfo: null,
   pendingUpdate: null,
@@ -133,6 +145,36 @@ export const useForelStore = create<ForelState>((set, get) => ({
 
   previewRules: async (folderId) => {
     return invoke<PreviewResult>("preview_rules", { folderId });
+  },
+
+  fetchHistory: async () => {
+    set({ historyLoading: true });
+    try {
+      const history = await invoke<HistoryEntry[]>("get_history");
+      set({ history });
+    } finally {
+      set({ historyLoading: false });
+    }
+  },
+
+  undoEntry: async (id) => {
+    await invoke("undo_entry", { id });
+    set((s) => ({
+      history: s.history.map((e) =>
+        e.id === id ? { ...e, status: "undone" } : e,
+      ),
+    }));
+  },
+
+  undoBatch: async (batchId) => {
+    const summary = await invoke<UndoSummary>("undo_batch", { batchId });
+    await get().fetchHistory();
+    return summary;
+  },
+
+  clearHistory: async () => {
+    await invoke("clear_history");
+    set({ history: [] });
   },
 
   checkForUpdates: async () => {

@@ -87,6 +87,10 @@ pub fn run() {
             commands::preview_rules,
             commands::get_macos_tags,
             commands::add_custom_tag,
+            commands::get_history,
+            commands::undo_entry,
+            commands::undo_batch,
+            commands::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running forel");

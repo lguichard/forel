@@ -2,8 +2,9 @@ use anyhow::{bail, Context, Result};
 use rusqlite::Connection;
 
 mod v1_add_recursion_depth;
+mod v2_add_action_history;
 
-const CURRENT_SCHEMA_VERSION: i64 = 1;
+const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 struct Migration {
     version: i64,
@@ -11,19 +12,24 @@ struct Migration {
     apply: fn(&Connection) -> Result<()>,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "add recursion depth to rules",
-    apply: v1_add_recursion_depth::apply,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "add recursion depth to rules",
+        apply: v1_add_recursion_depth::apply,
+    },
+    Migration {
+        version: 2,
+        name: "add action history table",
+        apply: v2_add_action_history::apply,
+    },
+];
 
 pub fn run(conn: &Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version > CURRENT_SCHEMA_VERSION {
         bail!(
-            "database schema version {} is newer than supported {}",
-            version,
-            CURRENT_SCHEMA_VERSION
+            "database schema version {version} is newer than supported {CURRENT_SCHEMA_VERSION}"
         );
     }
 

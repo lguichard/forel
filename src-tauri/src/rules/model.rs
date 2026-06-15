@@ -123,3 +123,30 @@ pub struct Action {
     pub params: serde_json::Value,
     pub position: i64,
 }
+
+// ---------- Action history ----------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryStatus {
+    Applied,
+    Undone,
+}
+
+/// A single executed action, recorded so it can be reviewed (log) and reversed
+/// (undo). Entries from one rule run share a `batch_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub id: String,
+    pub batch_id: String,
+    pub rule_id: Option<String>,
+    pub rule_name: String,
+    pub action_kind: ActionKind,
+    pub original_path: String,
+    pub result_path: String,
+    /// Serialised `rules::action::Undo`.
+    pub undo: serde_json::Value,
+    pub reversible: bool,
+    pub status: HistoryStatus,
+    pub created_at: String,
+}
