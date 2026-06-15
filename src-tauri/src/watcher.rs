@@ -71,6 +71,7 @@ fn on_event(event: &Event, db: &Arc<Mutex<Connection>>) {
 
     for path in &event.paths {
         let Some((folder, rules)) = load_folder_and_rules_for_path(path, db) else {
+            continue;
         };
         let Some(depth) = engine::path_depth(std::path::Path::new(&folder.path), path) else {
             continue;
