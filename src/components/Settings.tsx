@@ -2,6 +2,7 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
+  Heart,
   History as HistoryIcon,
   Monitor,
   Moon,
@@ -171,6 +172,28 @@ export default function Settings({
             <span className="settings-about-desc">
               Open-source file automation for macOS.
             </span>
+            <div className="settings-about-links">
+              <button
+                className="settings-about-link"
+                onClick={() => void openUrl("https://github.com/lguichard/forel")}
+              >
+                <ExternalLink size={12} /> GitHub
+              </button>
+              <span className="settings-about-sep">·</span>
+              <button
+                className="settings-about-link"
+                onClick={() => void openUrl("https://github.com/lguichard/forel/blob/main/CONTRIBUTING.md")}
+              >
+                Contributing welcome
+              </button>
+              <span className="settings-about-sep">·</span>
+              <button
+                className="settings-about-link"
+                onClick={() => void openUrl("https://github.com/sponsors/lguichard")}
+              >
+                <Heart size={12} /> Sponsor
+              </button>
+            </div>
           </div>
         </section>
       </div>
