@@ -105,6 +105,13 @@ function validateRule(rule: Rule): string | null {
   return null;
 }
 
+function scopeLabel(depth: number | null) {
+  if (depth === null) return "All subfolders";
+  if (depth === 0) return "Current folder";
+  if (depth === 1) return "1 subfolder level";
+  return `${depth} subfolder levels`;
+}
+
 function operatorsFor(kind: ConditionKind): Operator[] {
   if (kind === "size_bytes") return NUMBER_OPERATORS;
   if (kind === "kind" || kind === "color_label") return PRESENCE_OPERATORS;
@@ -112,9 +119,10 @@ function operatorsFor(kind: ConditionKind): Operator[] {
 }
 
 export default function RuleEditor({ rule, onClose }: Props) {
-  const { updateRule, runRule } = useForelStore();
+  const { updateRule } = useForelStore();
   const [draft, setDraft] = useState<Rule>(structuredClone(rule));
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const save = async () => {
     const problem = validateRule(draft);
@@ -124,10 +132,19 @@ export default function RuleEditor({ rule, onClose }: Props) {
     }
 
     setError(null);
-    await updateRule(draft);
-    if (draft.enabled) await runRule(draft.id);
-    onClose();
+    setSaving(true);
+    try {
+      await updateRule(draft);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save rule.");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const isCurrentFolder = draft.recursion_depth === 0;
+  const isInfinite = draft.recursion_depth === null;
 
   const addCondition = () => {
     const cond: Condition = {
@@ -235,6 +252,74 @@ export default function RuleEditor({ rule, onClose }: Props) {
           )}
         </section>
 
+        {/* Scope */}
+        <section className="editor-section">
+          <div className="editor-section-header">
+            <span>Scope</span>
+          </div>
+
+          <div className="scope-row">
+            <div className="segmented scope-segmented">
+              <button
+                type="button"
+                className={`segmented-option${isCurrentFolder ? " active" : ""}`}
+                onClick={() => setDraft((d) => ({ ...d, recursion_depth: 0 }))}
+              >
+                Current folder
+              </button>
+              <button
+                type="button"
+                className={`segmented-option${isCurrentFolder ? "" : " active"}`}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    recursion_depth: d.recursion_depth === 0 ? 1 : d.recursion_depth ?? 1,
+                  }))
+                }
+              >
+                Subfolders
+              </button>
+            </div>
+
+            {!isCurrentFolder && (
+              <div className="scope-controls">
+                <label className="scope-depth">
+                  <span className="scope-label">Depth</span>
+                  <input
+                    className="scope-depth-input"
+                    type="number"
+                    min={1}
+                    value={isInfinite ? "" : draft.recursion_depth ?? 1}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      setDraft((d) => ({
+                        ...d,
+                        recursion_depth: Number.isFinite(next) && next >= 1 ? Math.floor(next) : 1,
+                      }));
+                    }}
+                    disabled={isInfinite}
+                  />
+                </label>
+
+                <label className="scope-infinite">
+                  <input
+                    type="checkbox"
+                    checked={isInfinite}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        recursion_depth: e.target.checked ? null : d.recursion_depth ?? 1,
+                      }))
+                    }
+                  />
+                  <span>All levels</span>
+                </label>
+              </div>
+            )}
+          </div>
+          <p className="scope-help">{scopeLabel(draft.recursion_depth)}</p>
+        </section>
+
         {/* Actions */}
         <section className="editor-section">
           <div className="editor-section-header">
@@ -264,16 +349,16 @@ export default function RuleEditor({ rule, onClose }: Props) {
           ) : (
             <p className="editor-warning">
               {draft.enabled
-                ? "This rule is active. Saving runs it now on every existing file in the folder."
+                ? `This rule is active. Saving runs it now on every matching file in the configured scope.`
                 : "This rule is inactive. Enable it in the list to apply it to the folder."}
             </p>
           )}
           <div className="editor-footer-actions">
-            <button className="btn btn-secondary" onClick={onClose}>
+            <button className="btn btn-secondary" onClick={onClose} disabled={saving}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={save}>
-              Save
+            <button className="btn btn-primary" onClick={save} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
             </button>
           </div>
         </div>

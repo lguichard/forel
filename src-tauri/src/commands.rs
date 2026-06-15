@@ -7,7 +7,7 @@ use tauri::{AppHandle, State};
 use crate::{
     db,
     rules::{
-        engine::PreviewResult,
+        engine::{self, PreviewResult},
         model::{Rule, WatchedFolder},
     },
     state::AppState,
@@ -170,7 +170,7 @@ pub fn toggle_rule(
     Ok(())
 }
 
-/// Applies a single enabled rule to all files in its folder.
+/// Applies a single enabled rule to all files in its configured scope.
 #[tauri::command]
 pub fn run_rule(rule_id: String, state: State<AppState>) -> Result<Vec<String>, String> {
     let (folder_path, rule) = {
@@ -193,21 +193,24 @@ pub fn run_rule(rule_id: String, state: State<AppState>) -> Result<Vec<String>, 
     };
 
     let mut matched = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&folder_path) {
-        for entry in entries.flatten() {
-            matched.extend(crate::rules::engine::evaluate_file(
-                &entry.path(),
-                std::slice::from_ref(&rule),
-            ));
-        }
+    let max_depth = engine::max_rule_depth(std::slice::from_ref(&rule));
+    let entries = engine::walk_entries(std::path::Path::new(&folder_path), max_depth)
+        .map_err(|e| e.to_string())?;
+    for entry in entries {
+        let path = std::path::Path::new(&entry.path);
+        matched.extend(engine::evaluate_file(
+            path,
+            entry.depth,
+            std::slice::from_ref(&rule),
+        ));
     }
 
     Ok(matched)
 }
 
-/// Manually triggers rule evaluation for all files in the folder.
+/// Manually triggers rule evaluation for all files in the folder scope.
 #[tauri::command]
-pub fn run_rules_now(folder_id: String, state: State<AppState>) -> Result<Vec<String>, String> {
+pub fn run_rules_now(folder_id: String, state: State<AppState>) -> Result<usize, String> {
     let (folder_path, rules) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let path: String = conn
@@ -221,19 +224,21 @@ pub fn run_rules_now(folder_id: String, state: State<AppState>) -> Result<Vec<St
         (path, rules)
     };
 
-    let mut all_matched = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&folder_path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let matched = crate::rules::engine::evaluate_file(&path, &rules);
-            all_matched.extend(matched);
+    let mut files_modified = 0;
+    let max_depth = engine::max_rule_depth(&rules);
+    let entries = engine::walk_entries(std::path::Path::new(&folder_path), max_depth)
+        .map_err(|e| e.to_string())?;
+    for entry in entries {
+        let path = std::path::Path::new(&entry.path);
+        if !engine::evaluate_file(path, entry.depth, &rules).is_empty() {
+            files_modified += 1;
         }
     }
 
-    Ok(all_matched)
+    Ok(files_modified)
 }
 
-/// Simulates rule evaluation for all files in the folder without running actions.
+/// Simulates rule evaluation for all files in the folder scope without running actions.
 #[tauri::command]
 pub fn preview_rules(folder_id: String, state: State<AppState>) -> Result<PreviewResult, String> {
     let (folder_path, rules) = {
@@ -254,11 +259,13 @@ pub fn preview_rules(folder_id: String, state: State<AppState>) -> Result<Previe
         matches: Vec::new(),
     };
 
-    let entries = std::fs::read_dir(&folder_path).map_err(|e| e.to_string())?;
-    for entry in entries.flatten() {
-        let path = entry.path();
+    let max_depth = engine::max_rule_depth(&rules);
+    let entries = engine::walk_entries(std::path::Path::new(&folder_path), max_depth)
+        .map_err(|e| e.to_string())?;
+    for entry in entries {
+        let path = std::path::Path::new(&entry.path);
         result.files_scanned += 1;
-        if let Some(preview) = crate::rules::engine::preview_file(&path, &rules) {
+        if let Some(preview) = engine::preview_file(path, entry.depth, &rules) {
             result.matches.push(preview);
         }
     }
@@ -271,7 +278,9 @@ pub fn preview_rules(folder_id: String, state: State<AppState>) -> Result<Previe
 /// colour-label picker, not as text tags.
 #[tauri::command]
 pub fn get_macos_tags(state: State<AppState>) -> Vec<String> {
-    let colors = ["red", "orange", "yellow", "green", "blue", "purple", "gray", "grey"];
+    let colors = [
+        "red", "orange", "yellow", "green", "blue", "purple", "gray", "grey",
+    ];
     let is_color = |name: &str| colors.contains(&name.to_lowercase().as_str());
     let mut tags: Vec<String> = Vec::new();
 

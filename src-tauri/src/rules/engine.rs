@@ -1,10 +1,20 @@
-use std::path::{Path, PathBuf};
+use std::{
+    convert::TryFrom,
+    path::{Path, PathBuf},
+};
 
 use super::{
     action, condition,
     model::{ActionKind, ConditionMatch, Rule},
 };
+use anyhow::Result;
 use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScopedPath {
+    pub path: String,
+    pub depth: usize,
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct RulePreview {
     pub rule_id: String,
@@ -27,11 +37,11 @@ pub struct PreviewResult {
 
 /// Evaluates all enabled rules against `path` and executes matching ones.
 /// Returns a list of rule names that matched.
-pub fn evaluate_file(path: &Path, rules: &[Rule]) -> Vec<String> {
+pub fn evaluate_file(path: &Path, depth: usize, rules: &[Rule]) -> Vec<String> {
     let mut matched = Vec::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
-        if rule_matches(rule, path) {
+        if rule_matches_at_depth(rule, path, depth) {
             execute_actions(rule, path);
             matched.push(rule.name.clone());
         }
@@ -40,11 +50,11 @@ pub fn evaluate_file(path: &Path, rules: &[Rule]) -> Vec<String> {
     matched
 }
 
-pub fn preview_file(path: &Path, rules: &[Rule]) -> Option<FilePreview> {
+pub fn preview_file(path: &Path, depth: usize, rules: &[Rule]) -> Option<FilePreview> {
     let mut matched_rules = Vec::new();
 
     for rule in rules.iter().filter(|r| r.enabled) {
-        if rule_matches(rule, path) {
+        if rule_matches_at_depth(rule, path, depth) {
             let mut sorted = rule.actions.clone();
             sorted.sort_by_key(|a| a.position);
             let actions: Vec<String> = sorted
@@ -79,9 +89,9 @@ pub fn preview_file(path: &Path, rules: &[Rule]) -> Option<FilePreview> {
     })
 }
 
-fn rule_matches(rule: &Rule, path: &Path) -> bool {
+fn rule_matches_at_depth(rule: &Rule, path: &Path, depth: usize) -> bool {
     if rule.conditions.is_empty() {
-        return true;
+        return rule_in_scope(rule, depth);
     }
 
     let results: Vec<bool> = rule
@@ -90,10 +100,82 @@ fn rule_matches(rule: &Rule, path: &Path) -> bool {
         .map(|c| condition::evaluate(c, path).unwrap_or(false))
         .collect();
 
-    match rule.condition_match {
-        ConditionMatch::All => results.iter().all(|&v| v),
-        ConditionMatch::Any => results.iter().any(|&v| v),
+    rule_in_scope(rule, depth)
+        && match rule.condition_match {
+            ConditionMatch::All => results.iter().all(|&v| v),
+            ConditionMatch::Any => results.iter().any(|&v| v),
+        }
+}
+
+fn rule_in_scope(rule: &Rule, depth: usize) -> bool {
+    match rule.recursion_depth {
+        Some(limit) if limit >= 0 => usize::try_from(limit).is_ok_and(|limit| depth <= limit),
+        Some(_) => depth == 0,
+        None => true,
     }
+}
+
+pub fn path_depth(root: &Path, path: &Path) -> Option<usize> {
+    let rel = path.strip_prefix(root).ok()?;
+    Some(rel.components().count().saturating_sub(1))
+}
+
+pub fn walk_entries(root: &Path, max_depth: Option<usize>) -> Result<Vec<ScopedPath>> {
+    let mut entries = Vec::new();
+    if !root.is_dir() {
+        return Ok(entries);
+    }
+
+    walk_entries_inner(root, max_depth, 0, &mut entries)?;
+    Ok(entries)
+}
+
+fn walk_entries_inner(
+    root: &Path,
+    max_depth: Option<usize>,
+    depth: usize,
+    entries: &mut Vec<ScopedPath>,
+) -> Result<()> {
+    let mut children: Vec<PathBuf> = std::fs::read_dir(root)?
+        .flatten()
+        .map(|entry| entry.path())
+        .collect();
+    children.sort();
+
+    for child in children {
+        entries.push(ScopedPath {
+            path: child.to_string_lossy().to_string(),
+            depth,
+        });
+
+        let Ok(meta) = std::fs::symlink_metadata(&child) else {
+            continue;
+        };
+        if !meta.file_type().is_dir() || meta.file_type().is_symlink() {
+            continue;
+        }
+        if max_depth.is_some_and(|limit| depth >= limit) {
+            continue;
+        }
+
+        walk_entries_inner(&child, max_depth, depth + 1, entries)?;
+    }
+
+    Ok(())
+}
+
+pub fn max_rule_depth(rules: &[Rule]) -> Option<usize> {
+    if rules.iter().any(|rule| rule.recursion_depth.is_none()) {
+        return None;
+    }
+
+    rules
+        .iter()
+        .filter_map(|rule| {
+            rule.recursion_depth
+                .and_then(|depth| usize::try_from(depth.max(0)).ok())
+        })
+        .max()
 }
 
 fn execute_actions(rule: &Rule, path: &Path) {
@@ -178,6 +260,7 @@ mod tests {
             name: name.to_string(),
             enabled,
             condition_match,
+            recursion_depth: Some(0),
             conditions,
             actions: Vec::new(),
             priority: 0,
@@ -228,7 +311,7 @@ mod tests {
         ];
 
         assert_eq!(
-            evaluate_file(&file, &rules),
+            evaluate_file(&file, 0, &rules),
             vec![
                 "all matched".to_string(),
                 "any matched".to_string(),
@@ -252,11 +335,12 @@ mod tests {
             action(ActionKind::AddTag, json!({ "tags": ["Sorted"] }), 2),
         ];
 
-        let before = preview_file(&file, &[matching_rule.clone()]).expect("preview before apply");
+        let before =
+            preview_file(&file, 0, &[matching_rule.clone()]).expect("preview before apply");
         assert_eq!(before.rules[0].actions.len(), 2);
 
-        evaluate_file(&file, &[matching_rule.clone()]);
-        assert!(preview_file(&file, &[matching_rule]).is_none());
+        evaluate_file(&file, 0, &[matching_rule.clone()]);
+        assert!(preview_file(&file, 0, &[matching_rule]).is_none());
     }
 
     #[test]
@@ -280,7 +364,7 @@ mod tests {
             ),
         ];
 
-        let preview = preview_file(&file, &[matching_rule]).expect("preview should match");
+        let preview = preview_file(&file, 0, &[matching_rule]).expect("preview should match");
 
         assert!(file.exists());
         assert!(!destination.join("invoice.pdf").exists());
@@ -292,6 +376,33 @@ mod tests {
                 format!("Move to {}", destination.join("invoice.pdf").display()),
                 "Add tag 'Reviewed'".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn recursion_depth_blocks_nested_matches_but_allows_direct_children() {
+        let dir = TestDir::new();
+        let direct = dir.file("direct.txt", "direct");
+        let nested_dir = dir.path.join("Nested");
+        fs::create_dir(&nested_dir).expect("create nested dir");
+        let nested = nested_dir.join("inside.txt");
+        fs::write(&nested, "nested").expect("write nested file");
+
+        let mut shallow_rule = rule(
+            "shallow",
+            true,
+            ConditionMatch::All,
+            vec![condition(ConditionKind::Name, Operator::Contains, "direct")],
+        );
+        shallow_rule.recursion_depth = Some(0);
+
+        assert_eq!(
+            evaluate_file(&direct, 0, &[shallow_rule.clone()]),
+            vec!["shallow".to_string()]
+        );
+        assert_eq!(
+            evaluate_file(&nested, 1, &[shallow_rule]),
+            Vec::<String>::new()
         );
     }
 }

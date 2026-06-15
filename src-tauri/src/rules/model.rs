@@ -34,6 +34,7 @@ pub struct Rule {
     pub name: String,
     pub enabled: bool,
     pub condition_match: ConditionMatch,
+    pub recursion_depth: Option<i64>,
     pub conditions: Vec<Condition>,
     pub actions: Vec<Action>,
     pub priority: i64,
@@ -48,6 +49,7 @@ impl Rule {
             name,
             enabled: false,
             condition_match: ConditionMatch::All,
+            recursion_depth: Some(0),
             conditions: vec![],
             actions: vec![],
             priority: 0,
@@ -92,7 +94,6 @@ pub struct Condition {
     pub operator: Operator,
     pub value: String,
 }
-
 
 // ---------- Actions ----------
 

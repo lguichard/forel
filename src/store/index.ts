@@ -39,7 +39,7 @@ interface ForelState {
   deleteRule: (ruleId: string) => Promise<void>;
   toggleRule: (ruleId: string, enabled: boolean) => Promise<void>;
   runRule: (ruleId: string) => Promise<string[]>;
-  runRulesNow: (folderId: string) => Promise<string[]>;
+  runRulesNow: (folderId: string) => Promise<number>;
   previewRules: (folderId: string) => Promise<PreviewResult>;
 
   // Update actions
@@ -128,7 +128,7 @@ export const useForelStore = create<ForelState>((set, get) => ({
   },
 
   runRulesNow: async (folderId) => {
-    return invoke<string[]>("run_rules_now", { folderId });
+    return invoke<number>("run_rules_now", { folderId });
   },
 
   previewRules: async (folderId) => {

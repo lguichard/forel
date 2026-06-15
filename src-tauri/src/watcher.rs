@@ -43,13 +43,13 @@ pub fn start(db: Arc<Mutex<Connection>>, _app: AppHandle) -> Result<WatcherHandl
                     match cmd {
                         WatcherCmd::Add(path) => {
                             if watch_set.insert(path.clone()) {
-                                let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
+                                let _ = watcher.watch(&path, RecursiveMode::Recursive);
                             }
-                        }
+                        },
                         WatcherCmd::Remove(path) => {
                             let _ = watcher.unwatch(&path);
                             watch_set.remove(&path);
-                        }
+                        },
                     }
                 }
 
@@ -70,30 +70,27 @@ fn on_event(event: &Event, db: &Arc<Mutex<Connection>>) {
     }
 
     for path in &event.paths {
-        let rules = load_rules_for_path(path, db);
-        let matched = engine::evaluate_file(path, &rules);
+        let Some((folder, rules)) = load_folder_and_rules_for_path(path, db) else {
+        };
+        let Some(depth) = engine::path_depth(std::path::Path::new(&folder.path), path) else {
+            continue;
+        };
+        let matched = engine::evaluate_file(path, depth, &rules);
         for rule_name in matched {
             log::info!("Rule '{rule_name}' matched {}", path.display());
         }
     }
 }
 
-fn load_rules_for_path(path: &std::path::Path, db: &Arc<Mutex<Connection>>) -> Vec<Rule> {
-    let Some(parent) = path.parent() else { return vec![] };
+fn load_folder_and_rules_for_path(
+    path: &std::path::Path,
+    db: &Arc<Mutex<Connection>>,
+) -> Option<(crate::rules::model::WatchedFolder, Vec<Rule>)> {
+    let Ok(conn) = db.lock() else {
+        return None;
+    };
 
-    let Ok(conn) = db.lock() else { return vec![] };
-
-    // Find folder record matching this parent directory
-    let folder_id: Option<String> = conn
-        .query_row(
-            "SELECT id FROM watched_folders WHERE path=?1 AND enabled=1",
-            rusqlite::params![parent.to_string_lossy().as_ref()],
-            |row| row.get(0),
-        )
-        .ok();
-
-    match folder_id {
-        Some(id) => crate::db::list_rules(&conn, &id).unwrap_or_default(),
-        None => vec![],
-    }
+    let folder = crate::db::folder_for_path(&conn, path).ok().flatten()?;
+    let rules = crate::db::list_rules(&conn, &folder.id).unwrap_or_default();
+    Some((folder, rules))
 }

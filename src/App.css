@@ -242,6 +242,12 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--te
 .rule-list-subtitle { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 .rule-list-actions { display: flex; gap: 8px; }
 
+.rule-order-hint {
+  padding: 10px 22px 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .rules {
   list-style: none;
   overflow-y: auto;
@@ -263,9 +269,51 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--te
 .rule-row:hover { border-color: var(--border-strong); }
 .rule-disabled { opacity: 0.55; }
 
+.rule-order {
+  width: 18px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+.rule-order-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-control);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.rule-order-arrow {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+.rule-order-line {
+  width: 1px;
+  flex: 1;
+  margin-top: 1px;
+  background: var(--border);
+}
+
 .rule-info { flex: 1; cursor: pointer; min-width: 0; }
 .rule-name { font-weight: 500; display: block; }
-.rule-summary { font-size: 11px; color: var(--text-secondary); }
+.rule-summary,
+.rule-scope {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
 .rule-delete {
   color: var(--text-secondary);
   padding: 5px;
@@ -571,6 +619,53 @@ input, select, textarea { font-family: inherit; font-size: 13px; color: var(--te
   justify-content: space-between;
   margin-bottom: 10px;
   font-weight: 500;
+}
+.scope-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scope-segmented {
+  width: fit-content;
+}
+.scope-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scope-depth {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scope-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.scope-depth-input {
+  width: 78px;
+  height: 28px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 0 9px;
+  background: var(--bg-control);
+}
+.scope-depth-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.scope-infinite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.scope-help {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 .section-add-btn {
   width: 22px; height: 22px;

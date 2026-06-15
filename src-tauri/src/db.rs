@@ -1,9 +1,21 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
+use std::path::Path;
+
+mod migrations;
 
 use crate::rules::model::{
     Action, ActionKind, Condition, ConditionKind, ConditionMatch, Operator, Rule, WatchedFolder,
 };
+
+pub(crate) fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    Ok(rows
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|name| name == column))
+}
 
 pub fn init(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -23,6 +35,7 @@ pub fn init(conn: &Connection) -> Result<()> {
              name             TEXT NOT NULL,
              enabled          INTEGER NOT NULL DEFAULT 1,
              condition_match  TEXT NOT NULL DEFAULT 'all',
+             recursion_depth  INTEGER NOT NULL DEFAULT 0,
              priority         INTEGER NOT NULL DEFAULT 0,
              created_at       TEXT NOT NULL
          );
@@ -47,7 +60,10 @@ pub fn init(conn: &Connection) -> Result<()> {
              name TEXT PRIMARY KEY
          );",
     )
-    .context("schema init")
+    .context("schema init")?;
+
+    migrations::run(conn)?;
+    Ok(())
 }
 
 // ---------- Custom tags ----------
@@ -84,6 +100,15 @@ pub fn list_folders(conn: &Connection) -> Result<Vec<WatchedFolder>> {
         .context("list folders")
 }
 
+pub fn folder_for_path(conn: &Connection, path: &Path) -> Result<Option<WatchedFolder>> {
+    let folders = list_folders(conn)?;
+    Ok(folders
+        .into_iter()
+        .filter(|folder| folder.enabled)
+        .filter(|folder| path.starts_with(Path::new(&folder.path)))
+        .max_by_key(|folder| folder.path.len()))
+}
+
 pub fn insert_folder(conn: &Connection, folder: &WatchedFolder) -> Result<()> {
     conn.execute(
         "INSERT INTO watched_folders (id, path, enabled, created_at) VALUES (?1,?2,?3,?4)",
@@ -114,7 +139,7 @@ pub fn toggle_folder(conn: &Connection, id: &str, enabled: bool) -> Result<()> {
 
 pub fn list_rules(conn: &Connection, folder_id: &str) -> Result<Vec<Rule>> {
     let mut stmt = conn.prepare(
-        "SELECT id, folder_id, name, enabled, condition_match, priority, created_at
+        "SELECT id, folder_id, name, enabled, condition_match, recursion_depth, priority, created_at
          FROM rules WHERE folder_id=?1 ORDER BY priority, created_at",
     )?;
     let rule_rows = stmt.query_map(params![folder_id], |row| {
@@ -128,10 +153,14 @@ pub fn list_rules(conn: &Connection, folder_id: &str) -> Result<Vec<Rule>> {
             } else {
                 ConditionMatch::All
             },
+            recursion_depth: match row.get::<_, Option<i64>>(5)? {
+                Some(depth) if depth >= 0 => Some(depth),
+                _ => None,
+            },
             conditions: vec![],
             actions: vec![],
-            priority: row.get(5)?,
-            created_at: row.get(6)?,
+            priority: row.get(6)?,
+            created_at: row.get(7)?,
         })
     })?;
 
@@ -163,14 +192,15 @@ pub fn insert_rule(conn: &Connection, rule: &Rule) -> Result<()> {
         "all"
     };
     conn.execute(
-        "INSERT INTO rules (id, folder_id, name, enabled, condition_match, priority, created_at)
-         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO rules (id, folder_id, name, enabled, condition_match, recursion_depth, priority, created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             rule.id,
             rule.folder_id,
             rule.name,
             i64::from(rule.enabled),
             match_str,
+            rule.recursion_depth.unwrap_or(-1),
             rule.priority,
             rule.created_at
         ],
@@ -188,11 +218,12 @@ pub fn update_rule(conn: &Connection, rule: &Rule) -> Result<()> {
             "all"
         };
         conn.execute(
-            "UPDATE rules SET name=?1, enabled=?2, condition_match=?3, priority=?4 WHERE id=?5",
+            "UPDATE rules SET name=?1, enabled=?2, condition_match=?3, recursion_depth=?4, priority=?5 WHERE id=?6",
             params![
                 rule.name,
                 i64::from(rule.enabled),
                 match_str,
+                rule.recursion_depth.unwrap_or(-1),
                 rule.priority,
                 rule.id
             ],
@@ -410,6 +441,7 @@ mod tests {
             name: name.to_string(),
             enabled: true,
             condition_match: ConditionMatch::All,
+            recursion_depth: Some(0),
             conditions: Vec::new(),
             actions: Vec::new(),
             priority: 0,
@@ -435,6 +467,52 @@ mod tests {
             params,
             position,
         }
+    }
+
+    fn create_schema(conn: &Connection, version: i64, include_recursion_depth: bool) {
+        let recursion_depth = if include_recursion_depth {
+            "recursion_depth  INTEGER NOT NULL DEFAULT 0,"
+        } else {
+            ""
+        };
+
+        conn.execute_batch(&format!(
+            "PRAGMA user_version = {version};
+             CREATE TABLE watched_folders (
+                 id          TEXT PRIMARY KEY,
+                 path        TEXT NOT NULL UNIQUE,
+                 enabled     INTEGER NOT NULL DEFAULT 1,
+                 created_at  TEXT NOT NULL
+             );
+             CREATE TABLE rules (
+                 id               TEXT PRIMARY KEY,
+                 folder_id        TEXT NOT NULL REFERENCES watched_folders(id) ON DELETE CASCADE,
+                 name             TEXT NOT NULL,
+                 enabled          INTEGER NOT NULL DEFAULT 1,
+                 condition_match  TEXT NOT NULL DEFAULT 'all',
+                 {recursion_depth}
+                 priority         INTEGER NOT NULL DEFAULT 0,
+                 created_at       TEXT NOT NULL
+             );
+             CREATE TABLE conditions (
+                 id        TEXT PRIMARY KEY,
+                 rule_id   TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+                 kind      TEXT NOT NULL,
+                 operator  TEXT NOT NULL,
+                 value     TEXT NOT NULL
+             );
+             CREATE TABLE actions (
+                 id        TEXT PRIMARY KEY,
+                 rule_id   TEXT NOT NULL REFERENCES rules(id) ON DELETE CASCADE,
+                 kind      TEXT NOT NULL,
+                 params    TEXT NOT NULL,
+                 position  INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE custom_tags (
+                 name TEXT PRIMARY KEY
+             );",
+        ))
+        .expect("create schema");
     }
 
     #[test]
@@ -484,6 +562,33 @@ mod tests {
         assert_eq!(loaded.actions[0].params, json!({ "tag": "Reviewed" }));
         assert_eq!(loaded.actions[1].kind, ActionKind::SetColorLabel);
         assert_eq!(loaded.actions[1].params, json!({ "color": "Blue" }));
+        assert_eq!(loaded.recursion_depth, Some(0));
+    }
+
+    #[test]
+    fn migrate_recursion_depth_adds_column_to_legacy_schema() {
+        let conn = Connection::open_in_memory().expect("open in-memory database");
+        create_schema(&conn, 0, false);
+
+        init(&conn).expect("run migration");
+
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read schema version");
+        assert_eq!(version, 1);
+
+        let has_column = table_has_column(&conn, "rules", "recursion_depth")
+            .expect("inspect migrated schema");
+        assert!(has_column);
+    }
+
+    #[test]
+    fn init_rejects_newer_schema_versions() {
+        let conn = Connection::open_in_memory().expect("open in-memory database");
+        create_schema(&conn, 2, true);
+
+        let err = init(&conn).expect_err("reject newer schema");
+        assert!(err.to_string().contains("newer than supported"));
     }
 
     #[test]

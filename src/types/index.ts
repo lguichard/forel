@@ -60,6 +60,7 @@ export interface Rule {
   name: string;
   enabled: boolean;
   condition_match: ConditionMatch;
+  recursion_depth: number | null;
   conditions: Condition[];
   actions: Action[];
   priority: number;
