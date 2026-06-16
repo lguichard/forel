@@ -8,7 +8,6 @@ use std::{
 use anyhow::Result;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::Connection;
-use tauri::AppHandle;
 
 use crate::rules::{engine, model::Rule};
 
@@ -21,7 +20,7 @@ pub struct WatcherHandle {
     pub tx: std::sync::mpsc::Sender<WatcherCmd>,
 }
 
-pub fn start(db: Arc<Mutex<Connection>>, _app: AppHandle) -> Result<WatcherHandle> {
+pub fn start(db: Arc<Mutex<Connection>>) -> Result<WatcherHandle> {
     let (cmd_tx, cmd_rx) = std::sync::mpsc::channel::<WatcherCmd>();
     let (event_tx, event_rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
 

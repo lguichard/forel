@@ -7,11 +7,11 @@
 #![allow(clippy::must_use_candidate)]
 
 mod commands;
-mod db;
-mod rules;
+pub mod db;
+pub mod rules;
 mod state;
 mod tray;
-mod watcher;
+pub mod watcher;
 
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
@@ -40,7 +40,7 @@ pub fn run() {
 
             let db = Arc::new(Mutex::new(conn));
 
-            let watcher_handle = watcher::start(Arc::clone(&db), app.handle().clone())
+            let watcher_handle = watcher::start(Arc::clone(&db))
                 .expect("watcher failed to start");
 
             // Restore paused state and start watching enabled folders
