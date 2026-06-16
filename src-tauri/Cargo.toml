@@ -1,6 +1,6 @@
 [package]
 name = "forel"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.7"
 description = "Forel — open-source file automation for macOS"
 authors = []
 edition = "2021"
