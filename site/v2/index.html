@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Forel is a free, open-source macOS file automation app that watches folders and organizes files with local rules."
+    />
+    <title>Forel - File automation for macOS</title>
+    <link rel="icon" href="assets/forel-icon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header" aria-label="Main navigation">
+      <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="Forel home">
+          <img src="assets/forel-icon.png" alt="" />
+          <span>Forel</span>
+        </a>
+        <nav class="nav-links" aria-label="Page sections">
+          <a href="#automation">Automation</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#open-source">Open source</a>
+        </nav>
+        <a class="header-cta" href="https://github.com/lguichard/forel/releases">Download</a>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="container hero-inner">
+          <div class="hero-content">
+            <img class="hero-icon" src="assets/forel-icon.png" alt="" />
+            <p class="eyebrow">Free and open source for macOS</p>
+            <h1 id="hero-title">Forel</h1>
+            <p class="hero-copy">
+              The Hazel alternative for macOS. Watch folders, match files with clear rules,
+              and move, rename, tag, or label them automatically on your Mac.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="https://github.com/lguichard/forel/releases">
+                Download
+              </a>
+              <a class="button button-secondary" href="https://github.com/lguichard/forel">
+                View on GitHub
+              </a>
+            </div>
+            <p class="hero-note">macOS 14+ · 100% on-device · MIT licensed</p>
+          </div>
+          <div class="hero-shot">
+            <img
+              src="assets/app-screen-1.png"
+              alt="Forel main window showing watched folders and rules"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="intro-strip" aria-label="Forel summary">
+        <div class="container intro-grid">
+          <div class="intro-item">
+            <strong>No cloud</strong>
+            <span>Your files never leave your Mac.</span>
+          </div>
+          <div class="intro-item">
+            <strong>Rule-based</strong>
+            <span>Match by name, extension, kind, size, tags, color label, or content.</span>
+          </div>
+          <div class="intro-item">
+            <strong>Menu bar native</strong>
+            <span>Runs quietly in the background after setup.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section automation-section" id="automation">
+        <div class="section-inner two-column">
+          <div class="section-copy">
+            <p class="eyebrow">Folder automation</p>
+            <h2>Set up rules once. Let Forel handle the repetitive work.</h2>
+            <p>
+              Forel watches selected folders and applies actions when files match your rules.
+              Keep Downloads, screenshots, invoices, and work folders organized without dragging
+              files around by hand.
+            </p>
+          </div>
+          <div class="sorting-demo" aria-label="Messy folder sorted by Forel rules">
+            <div class="demo-column">
+              <div class="demo-heading">Downloads before</div>
+              <div class="file-stack">
+                <span>invoice_march_2026.pdf</span>
+                <span>photo_2026-03-14.jpg</span>
+                <span>contract_draft_v3.docx</span>
+                <span>bank_statement_march.pdf</span>
+                <span>screenshot_09-42.png</span>
+              </div>
+            </div>
+            <div class="demo-connector">
+              <span>Forel rules</span>
+            </div>
+            <div class="demo-column">
+              <div class="demo-heading">Sorted automatically</div>
+              <div class="folder-stack">
+                <div>
+                  <strong>Work/Invoices/2026</strong>
+                  <span>invoice_march_2026.pdf</span>
+                </div>
+                <div>
+                  <strong>Photos/2026/March</strong>
+                  <span>photo_2026-03-14.jpg, screenshot_09-42.png</span>
+                </div>
+                <div>
+                  <strong>Work/Legal/Pending</strong>
+                  <span>contract_draft_v3.docx</span>
+                </div>
+                <div>
+                  <strong>Finance/2026</strong>
+                  <span>bank_statement_march.pdf</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section rules-section">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="eyebrow">Rules that stay understandable</p>
+            <h2>Conditions on one side. Actions on the other.</h2>
+            <p>
+              Forel keeps automation visible: choose what should match, then choose what should
+              happen. Preview changes before running them.
+            </p>
+          </div>
+          <div class="screenshot-band">
+            <img
+              src="assets/app-screen-2.png"
+              alt="Forel rule editor showing conditions, scope, and actions"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="section privacy-section" id="privacy">
+        <div class="section-inner feature-grid">
+          <article class="feature">
+            <span class="feature-kicker">Private</span>
+            <h3>Everything happens locally</h3>
+            <p>No accounts, no telemetry, no remote processing. Rules and history are stored in a local SQLite database.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-kicker">macOS</span>
+            <h3>Built around Finder workflows</h3>
+            <p>Use Finder tags, color labels, folders, scripts, and the menu bar patterns that feel native on macOS.</p>
+          </article>
+          <article class="feature">
+            <span class="feature-kicker">Open</span>
+            <h3>Free and MIT licensed</h3>
+            <p>Forel is built in the open with Tauri, Rust, React, and SQLite. Contributions and feedback are welcome.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section open-source-section" id="open-source">
+        <div class="section-inner open-source-inner">
+          <div>
+            <p class="eyebrow">Open source</p>
+            <h2>Built in the open for macOS automation.</h2>
+            <p>
+              Forel is free, MIT licensed, and community-driven. Download the app, inspect the
+              source, suggest improvements, or contribute to the next version.
+            </p>
+          </div>
+          <div class="open-source-actions">
+            <a class="button button-primary" href="https://github.com/lguichard/forel/releases">
+              Download
+            </a>
+            <a class="button button-secondary" href="https://github.com/lguichard/forel/issues">
+              Report an issue
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <span>Forel · MIT licensed · macOS 14+</span>
+        <a href="https://github.com/lguichard/forel">GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>
