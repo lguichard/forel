@@ -24,7 +24,11 @@ struct QuickPanelView: View {
                 header
 
                 if updater.updateAvailable {
-                    UpdateAvailableBanner(version: updater.latestVersion, action: updater.openReleasePage)
+                    UpdateAvailableBanner(
+                        version: updater.latestVersion,
+                        isInstalling: updater.isInstalling,
+                        action: updater.installUpdate
+                    )
                 }
 
                 GlassCard {

@@ -74,6 +74,7 @@ struct GlassCard<Content: View>: View {
 /// blending in with the neutral glass cards around it.
 struct UpdateAvailableBanner: View {
     let version: String?
+    let isInstalling: Bool
     let action: () -> Void
 
     var body: some View {
@@ -88,17 +89,19 @@ struct UpdateAvailableBanner: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Update available").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
-                Text(version.map { "Version \($0) is ready to download" } ?? "A new version is ready to download")
+                Text(version.map { "Version \($0) is ready to install" } ?? "A new version is ready to install")
                     .font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
             }
             Spacer()
-            Button("Download", action: action)
+            Button(isInstalling ? "Installing…" : "Download", action: action)
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(Color.orange)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(Capsule().fill(.white))
+                .disabled(isInstalling)
+                .opacity(isInstalling ? 0.7 : 1)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 14)

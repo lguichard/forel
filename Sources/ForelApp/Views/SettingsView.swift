@@ -47,16 +47,16 @@ struct SettingsView: View {
                         SettingsActionRow(
                             title: "Current version",
                             subtitle: versionSubtitle,
-                            buttonTitle: updater.updateAvailable ? "Download" : "Check Now",
+                            buttonTitle: updater.updateAvailable ? (updater.isInstalling ? "Installing…" : "Download") : "Check Now",
                             action: {
                                 if updater.updateAvailable {
-                                    updater.openReleasePage()
+                                    updater.installUpdate()
                                 } else {
                                     updater.checkForUpdates()
                                 }
                             }
                         )
-                        .disabled(updater.isChecking)
+                        .disabled(updater.isChecking || updater.isInstalling)
                     }
 
                     SectionLabel(title: "About")
