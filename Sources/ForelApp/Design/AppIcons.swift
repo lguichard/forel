@@ -11,7 +11,17 @@ enum AppIcons {
     static let trayGlyph: NSImage? = loadImage("TrayIcon")
 
     private static func loadImage(_ name: String) -> NSImage? {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent("Forel_ForelApp.bundle/Resources/\(name).png"),
+            Bundle.main.resourceURL?.appendingPathComponent("\(name).png"),
+            Bundle.main.bundleURL.appendingPathComponent("Resources/\(name).png")
+        ]
+
+        for candidate in candidates.compactMap({ $0 }) {
+            if let image = NSImage(contentsOf: candidate) {
+                return image
+            }
+        }
+        return nil
     }
 }

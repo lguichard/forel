@@ -35,12 +35,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        openMainWindow()
+        return true
+    }
+
     private func setUpStatusBar() {
         guard let model else { return }
         statusBarController = StatusBarController(
             model: model,
             window: NSApp.windows.first
         )
+    }
+
+    private func openMainWindow() {
+        let targetWindow = NSApp.windows.first { !($0 is NSPanel) }
+        WindowActivation.activate(targetWindow)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
