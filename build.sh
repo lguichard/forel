@@ -93,7 +93,12 @@ case "$command" in
     fi
 
     case "$arch" in
-      arm64|x86_64) ;;
+      arm64)
+        dmg_suffix="darwin-arm64"
+        ;;
+      x86_64)
+        dmg_suffix="darwin-x86_64"
+        ;;
       *)
         echo "Unsupported architecture: $arch" >&2
         exit 1
@@ -192,7 +197,7 @@ EOF
     cp -R "$dist_dir/Forel.app" "$staging_root/Forel.app"
     ln -s /Applications "$staging_root/Applications"
 
-    dmg_path="$dist_dir/Forel-${version}-${arch}.dmg"
+    dmg_path="$dist_dir/Forel-${version}-${dmg_suffix}.dmg"
     hdiutil create \
       -volname "Forel" \
       -srcfolder "$staging_root" \
