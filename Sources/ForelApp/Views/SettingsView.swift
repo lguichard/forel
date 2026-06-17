@@ -37,6 +37,13 @@ struct SettingsView: View {
                     }
 
                     SectionLabel(title: "Updates")
+                    if updater.updateAvailable {
+                        UpdateAvailableBanner(
+                            version: updater.latestVersion,
+                            isInstalling: updater.isInstalling,
+                            action: updater.installUpdate
+                        )
+                    }
                     GlassCard {
                         ToggleRow(
                             title: "Automatic updates",
@@ -47,16 +54,10 @@ struct SettingsView: View {
                         SettingsActionRow(
                             title: "Current version",
                             subtitle: versionSubtitle,
-                            buttonTitle: updater.updateAvailable ? (updater.isInstalling ? "Installing…" : "Download") : "Check Now",
-                            action: {
-                                if updater.updateAvailable {
-                                    updater.installUpdate()
-                                } else {
-                                    updater.checkForUpdates()
-                                }
-                            }
+                            buttonTitle: "Check Now",
+                            action: { updater.checkForUpdates() }
                         )
-                        .disabled(updater.isChecking || updater.isInstalling)
+                        .disabled(updater.isChecking || updater.isInstalling || updater.updateAvailable)
                     }
 
                     SectionLabel(title: "About")
@@ -124,7 +125,6 @@ struct SettingsView: View {
     private var versionSubtitle: String {
         let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "alpha"
         if updater.isChecking { return "\(current) — Checking…" }
-        if updater.updateAvailable, let latest = updater.latestVersion { return "\(current) — \(latest) available" }
         return current
     }
 }

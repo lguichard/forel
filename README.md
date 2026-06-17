@@ -21,7 +21,7 @@
 </div>
 
 > [!WARNING]
-> Forel is currently in **alpha**. Expect bugs, missing features, and breaking changes between versions. Not recommended for production use yet.
+> Forel is currently in **beta**. Expect bugs, missing features, and breaking changes between versions.
 
 ---
 
