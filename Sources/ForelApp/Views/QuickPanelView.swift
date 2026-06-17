@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import ForelCore
 
@@ -71,9 +72,20 @@ struct QuickPanelView: View {
                     }
                     Spacer()
                     FooterLink(title: "Quit", systemImage: "power", action: onQuit)
+                    Spacer()
+                    Button {
+                        NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/lionelguic9")!)
+                    } label: {
+                        Image(systemName: "cup.and.saucer.fill").font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(ForelTheme.secondaryText)
+                    .help("Buy me a coffee")
                 }
             }
-            .padding(16)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 12)
+            .padding(.top, 2)
             .frame(width: 320)
         }
         .padding(1)
