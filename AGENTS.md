@@ -15,7 +15,7 @@ Forel is a native macOS file-automation app. It watches folders and runs user-de
 | Backend | Swift 6 |
 | Core persistence | SQLite via the in-house `Database` wrapper |
 | File watching | `FileWatcher` / FSEvents on macOS |
-| Updates | Sparkle wrapper (`UpdaterManager`) |
+| Updates | GitHub Releases check (`UpdaterManager`) |
 | Build | Swift Package Manager |
 
 ## Repository layout

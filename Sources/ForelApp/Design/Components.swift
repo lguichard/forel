@@ -69,6 +69,47 @@ struct GlassCard<Content: View>: View {
     }
 }
 
+/// Prominent banner shown in the quick panel when a new version is
+/// available — filled orange surface so it reads at a glance instead of
+/// blending in with the neutral glass cards around it.
+struct UpdateAvailableBanner: View {
+    let version: String?
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Color.white.opacity(0.22))
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 32, height: 32)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Update available").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                Text(version.map { "Version \($0) is ready to download" } ?? "A new version is ready to download")
+                    .font(.system(size: 11)).foregroundStyle(.white.opacity(0.85))
+            }
+            Spacer()
+            Button("Download", action: action)
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(.white))
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LinearGradient(colors: [Color.orange, Color.orange.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.25)))
+    }
+}
+
 /// A title/subtitle row with a trailing switch, e.g. "Watching".
 struct ToggleRow: View {
     let title: String

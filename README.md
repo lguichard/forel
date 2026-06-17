@@ -135,7 +135,7 @@ forel/
 | File watching | Native FSEvents wrapper | Low-latency, battery-friendly folder monitoring |
 | Database | SQLite | Embedded, no server, predictable schema and queries |
 | Persistence layer | Custom Swift database wrapper | Direct control over transactions, migrations, and rule round-trips |
-| Updates | Sparkle | Native macOS update flow with signed release artifacts |
+| Updates | GitHub Releases check | Detects new tagged releases; ad-hoc signed builds are updated by manual reinstall, not in-place patching |
 | Build | Swift Package Manager | Single toolchain for development, test, and release |
 
 ---
@@ -184,6 +184,6 @@ MIT — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Made with ☕ · SwiftUI + SQLite + Sparkle · Inspired by file automation workflows popularized by tools like Hazel.
+Made with ☕ · SwiftUI + SQLite · Inspired by file automation workflows popularized by tools like Hazel.
 
 </div>

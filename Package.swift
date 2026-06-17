@@ -8,9 +8,6 @@ let package = Package(
         .library(name: "ForelCore", targets: ["ForelCore"]),
         .executable(name: "ForelApp", targets: ["ForelApp"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
-    ],
     targets: [
         .target(
             name: "ForelCore",
@@ -18,10 +15,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "ForelApp",
-            dependencies: [
-                "ForelCore",
-                .product(name: "Sparkle", package: "Sparkle"),
-            ],
+            dependencies: ["ForelCore"],
             resources: [.copy("Resources")]
         ),
         .testTarget(

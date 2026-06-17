@@ -119,24 +119,16 @@ case "$command" in
       exit 1
     fi
 
-    sparkle_framework="$(find "$build_root" -type d -name "Sparkle.framework" -print -quit)"
     resource_bundle="$(find "$build_root" -type d -name "*_ForelApp.bundle" -print -quit)"
     contents_dir="$bundle_root/Contents"
     macos_dir="$contents_dir/MacOS"
-    frameworks_dir="$contents_dir/Frameworks"
     resources_dir="$contents_dir/Resources"
 
     rm -rf "$bundle_root"
-    mkdir -p "$macos_dir" "$frameworks_dir" "$resources_dir"
+    mkdir -p "$macos_dir" "$resources_dir"
 
     cp "$binary_path" "$macos_dir/ForelApp"
     chmod +x "$macos_dir/ForelApp"
-
-    install_name_tool -add_rpath "@executable_path/../Frameworks" "$macos_dir/ForelApp" >/dev/null 2>&1 || true
-
-    if [[ -n "$sparkle_framework" ]]; then
-      cp -R "$sparkle_framework" "$frameworks_dir/"
-    fi
 
     if [[ -n "$resource_bundle" ]]; then
       cp -R "$resource_bundle" "$resources_dir/"
@@ -182,10 +174,6 @@ EOF
     mkdir -p "$dist_dir"
     rm -rf "$dist_dir/Forel.app"
     cp -R "$bundle_root" "$dist_dir/Forel.app"
-    if [[ -d "$bundle_root/Contents/Frameworks" ]]; then
-      mkdir -p "$dist_dir/Forel.app/Contents"
-      cp -R "$bundle_root/Contents/Frameworks" "$dist_dir/Forel.app/Contents/"
-    fi
     if [[ -f "$icns_path" ]]; then
       cp "$icns_path" "$dist_dir/Forel.app/Contents/Resources/Forel.icns"
     fi

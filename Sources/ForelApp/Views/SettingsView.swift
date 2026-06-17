@@ -46,10 +46,17 @@ struct SettingsView: View {
                         Divider().overlay(ForelTheme.divider).padding(.leading, 14)
                         SettingsActionRow(
                             title: "Current version",
-                            subtitle: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "alpha",
-                            buttonTitle: "Check Now",
-                            action: { updater.checkForUpdates() }
+                            subtitle: versionSubtitle,
+                            buttonTitle: updater.updateAvailable ? "Download" : "Check Now",
+                            action: {
+                                if updater.updateAvailable {
+                                    updater.openReleasePage()
+                                } else {
+                                    updater.checkForUpdates()
+                                }
+                            }
                         )
+                        .disabled(updater.isChecking)
                     }
 
                     SectionLabel(title: "About")
@@ -112,5 +119,12 @@ struct SettingsView: View {
 
     private var automaticUpdatesBinding: Binding<Bool> {
         Binding(get: { updater.automaticallyChecksForUpdates }, set: { updater.automaticallyChecksForUpdates = $0 })
+    }
+
+    private var versionSubtitle: String {
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "alpha"
+        if updater.isChecking { return "\(current) — Checking…" }
+        if updater.updateAvailable, let latest = updater.latestVersion { return "\(current) — \(latest) available" }
+        return current
     }
 }

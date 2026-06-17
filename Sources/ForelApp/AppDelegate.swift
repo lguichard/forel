@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.delegate = self
             window.title = "Forel"
         }
-        if model != nil {
+        if model != nil, updater != nil {
             setUpStatusBar()
         }
     }
@@ -42,9 +42,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func setUpStatusBar() {
-        guard let model else { return }
+        guard let model, let updater else { return }
         statusBarController = StatusBarController(
             model: model,
+            updater: updater,
             window: NSApp.windows.first
         )
     }

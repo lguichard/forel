@@ -7,6 +7,7 @@ import ForelCore
 /// stays in the main window; this is the glanceable surface.
 struct QuickPanelView: View {
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var updater: UpdaterManager
     let onOpenMainWindow: () -> Void
     let onQuit: () -> Void
 
@@ -21,6 +22,10 @@ struct QuickPanelView: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 header
+
+                if updater.updateAvailable {
+                    UpdateAvailableBanner(version: updater.latestVersion, action: updater.openReleasePage)
+                }
 
                 GlassCard {
                     ToggleRow(
