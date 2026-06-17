@@ -13,61 +13,120 @@ struct RuleEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(rule.name.isEmpty ? "New Rule" : "Edit Rule").font(.title2)
+        VStack(alignment: .leading, spacing: 14) {
+            ViewHeader(
+                title: rule.name.isEmpty ? "New Rule" : "Edit Rule",
+                subtitle: "Conditions decide which files match; actions decide what happens"
+            )
 
-            TextField("Name", text: $rule.name)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    SectionLabel(title: "Basics")
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            GlassField(placeholder: "Rule name", text: $rule.name)
 
-            Picker("Scope", selection: scopeBinding) {
-                Text("This folder only").tag(0 as Int64?)
-                Text("1 level deep").tag(1 as Int64?)
-                Text("All subfolders").tag(nil as Int64?)
-            }
+                            HStack {
+                                Text("Scope").font(.system(size: 12)).foregroundStyle(ForelTheme.secondaryText)
+                                Spacer()
+                                Picker("", selection: scopeBinding) {
+                                    Text("This folder").tag(0 as Int64?)
+                                    Text("1 level").tag(1 as Int64?)
+                                    Text("All subfolders").tag(nil as Int64?)
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.segmented)
+                                .frame(width: 260)
+                            }
 
-            Picker("Match", selection: $rule.conditionMatch) {
-                Text("All conditions").tag(ConditionMatch.all)
-                Text("Any condition").tag(ConditionMatch.any)
-            }
-            .pickerStyle(.segmented)
-
-            GroupBox("Conditions") {
-                VStack(alignment: .leading) {
-                    ForEach($rule.conditions, id: \.id) { $condition in
-                        ConditionRow(condition: $condition) {
-                            rule.conditions.removeAll { $0.id == condition.id }
+                            Picker("", selection: $rule.conditionMatch) {
+                                Text("Match all conditions").tag(ConditionMatch.all)
+                                Text("Match any condition").tag(ConditionMatch.any)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
                         }
+                        .padding(14)
                     }
-                    Button("Add Condition") {
-                        rule.conditions.append(Condition(ruleId: rule.id, kind: .name, operator: .contains, value: ""))
+
+                    HStack {
+                        SectionLabel(title: "Conditions")
+                        Spacer()
+                        Button {
+                            rule.conditions.append(Condition(ruleId: rule.id, kind: .name, operator: .contains, value: ""))
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(IconButtonStyle())
+                    }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if rule.conditions.isEmpty {
+                                placeholder("No conditions — this rule matches every file in scope.")
+                            }
+                            ForEach($rule.conditions, id: \.id) { $condition in
+                                ConditionRow(condition: $condition) {
+                                    rule.conditions.removeAll { $0.id == condition.id }
+                                }
+                            }
+                        }
+                        .padding(14)
+                    }
+
+                    HStack {
+                        SectionLabel(title: "Actions")
+                        Spacer()
+                        Button {
+                            rule.actions.append(Action(ruleId: rule.id, kind: .moveToFolder, params: .object(["destination": .string("")]), position: Int64(rule.actions.count)))
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(IconButtonStyle())
+                    }
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if rule.actions.isEmpty {
+                                placeholder("No actions yet — add at least one to make this rule do something.")
+                            }
+                            ForEach($rule.actions, id: \.id) { $action in
+                                ActionRow(action: $action) {
+                                    rule.actions.removeAll { $0.id == action.id }
+                                }
+                            }
+                        }
+                        .padding(14)
                     }
                 }
             }
+            .scrollIndicators(.never)
 
-            GroupBox("Actions") {
-                VStack(alignment: .leading) {
-                    ForEach($rule.actions, id: \.id) { $action in
-                        ActionRow(action: $action) {
-                            rule.actions.removeAll { $0.id == action.id }
-                        }
-                    }
-                    Button("Add Action") {
-                        rule.actions.append(Action(ruleId: rule.id, kind: .moveToFolder, params: .object(["destination": .string("")]), position: Int64(rule.actions.count)))
-                    }
-                }
-            }
-
-            Toggle("Enabled", isOn: $rule.enabled)
+            Divider().overlay(ForelTheme.divider)
 
             HStack {
+                Toggle("Enabled", isOn: $rule.enabled)
+                    .toggleStyle(.switch)
+                    .tint(ForelTheme.accent)
+                    .font(.system(size: 12))
+                    .foregroundStyle(ForelTheme.primaryText)
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button("Cancel", action: onCancel).buttonStyle(SecondaryButtonStyle())
                 Button("Save") { onSave(rule) }
+                    .buttonStyle(PrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(rule.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding()
-        .frame(width: 560, height: 560)
+        .padding(16)
+        .frame(width: 600, height: 620)
+        .background(ForelTheme.background)
+        .preferredColorScheme(.dark)
+    }
+
+    private func placeholder(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(ForelTheme.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var scopeBinding: Binding<Int64?> {
@@ -80,14 +139,14 @@ private struct ConditionRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 8) {
             Picker("", selection: $condition.kind) {
                 ForEach(ConditionEditorLabels.kinds, id: \.0) { kind, label in
                     Text(label).tag(kind)
                 }
             }
             .labelsHidden()
-            .frame(width: 120)
+            .frame(width: 130)
 
             Picker("", selection: $condition.operator) {
                 ForEach(ConditionEditorLabels.operators, id: \.0) { op, label in
@@ -95,13 +154,18 @@ private struct ConditionRow: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 130)
+            .frame(width: 140)
 
-            TextField("Value", text: $condition.value)
+            if condition.kind == .colorLabel {
+                ColorLabelPicker(selection: $condition.value, allowNone: false)
+            } else {
+                GlassField(placeholder: "Value", text: $condition.value)
+            }
 
             Button(role: .destructive, action: onDelete) {
-                Image(systemName: "minus.circle")
+                Image(systemName: "minus")
             }
+            .buttonStyle(IconButtonStyle(role: .destructive))
         }
     }
 }
@@ -111,36 +175,44 @@ private struct ActionRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Picker("", selection: kindBinding) {
                     ForEach(ConditionEditorLabels.actionKinds, id: \.0) { kind, label in
                         Text(label).tag(kind)
                     }
                 }
                 .labelsHidden()
-                .frame(width: 140)
+                .frame(width: 160)
+
+                Spacer()
 
                 Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "minus.circle")
+                    Image(systemName: "minus")
                 }
+                .buttonStyle(IconButtonStyle(role: .destructive))
             }
 
             switch action.kind {
             case .moveToFolder, .copyToFolder:
-                TextField("Destination folder", text: paramBinding("destination"))
+                FolderField(placeholder: "Destination folder", path: paramBinding("destination"))
             case .rename:
-                TextField("Pattern, e.g. {name}-{current_date}.{extension}", text: paramBinding("pattern"))
+                GlassField(placeholder: "Pattern, e.g. {name}-{current_date}.{extension}", text: paramBinding("pattern"))
             case .addTag, .removeTag:
-                TextField("Tag", text: paramBinding("tag"))
+                GlassField(placeholder: "Tag", text: paramBinding("tag"))
             case .setColorLabel:
-                TextField("Color (red, orange, yellow, green, blue, purple, gray)", text: paramBinding("color"))
+                ColorLabelPicker(selection: paramBinding("color"), allowNone: true)
             case .runScript:
-                TextField("Bash script (file path in $FOREL_FILE)", text: paramBinding("script"))
+                GlassField(placeholder: "Bash script (file path in $FOREL_FILE)", text: paramBinding("script"))
             case .moveToTrash, .delete:
-                Text("No parameters").font(.caption).foregroundStyle(.secondary)
+                Text("No parameters")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ForelTheme.secondaryText)
             }
         }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.03)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
     }
 
     private var kindBinding: Binding<ActionKind> {

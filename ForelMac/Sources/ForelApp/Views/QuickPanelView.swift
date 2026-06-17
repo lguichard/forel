@@ -61,18 +61,7 @@ struct QuickPanelView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.black)
-                Image(systemName: "wand.and.stars").foregroundStyle(.white)
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Forel").font(.system(size: 15, weight: .bold)).foregroundStyle(ForelTheme.primaryText)
-                Text("File automation").font(.system(size: 11)).foregroundStyle(ForelTheme.secondaryText)
-            }
-            Spacer()
+        ViewHeader(title: "Forel", subtitle: "File automation") {
             StatusBadge(active: !model.paused)
         }
     }

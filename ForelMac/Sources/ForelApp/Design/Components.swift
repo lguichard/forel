@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import ForelCore
 
 /// Small caps section header, e.g. "WATCHED FOLDERS".
@@ -168,5 +169,219 @@ struct FooterLink: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(ForelTheme.secondaryText)
+    }
+}
+
+// MARK: - Shared brand mark
+
+/// The small rounded Forel logo tile reused across the panel, settings and
+/// main-window headers.
+struct BrandMark: View {
+    var size: CGFloat = 34
+    var glyphSize: CGFloat = 16
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.26, style: .continuous).fill(Color.black)
+            Image(systemName: "wand.and.stars").font(.system(size: glyphSize)).foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// Standard window header: brand mark + title/subtitle + optional trailing
+/// content.
+struct ViewHeader<Trailing: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 10) {
+            BrandMark()
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 15, weight: .bold)).foregroundStyle(ForelTheme.primaryText)
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(ForelTheme.secondaryText)
+            }
+            Spacer()
+            trailing
+        }
+    }
+}
+
+extension ViewHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+// MARK: - Button styles
+
+/// Filled indigo accent button (primary call to action).
+struct PrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(ForelTheme.accent.opacity(configuration.isPressed ? 0.7 : 1)))
+            .contentShape(Capsule())
+    }
+}
+
+/// Subtle translucent surface button (secondary action).
+struct SecondaryButtonStyle: ButtonStyle {
+    var role: ButtonRole? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        let tint = role == .destructive ? ForelTheme.danger : ForelTheme.primaryText
+        return configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(ForelTheme.surface))
+            .overlay(Capsule().strokeBorder(ForelTheme.surfaceBorder))
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Capsule())
+    }
+}
+
+/// Compact circular icon button.
+struct IconButtonStyle: ButtonStyle {
+    var role: ButtonRole? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        let tint = role == .destructive ? ForelTheme.danger : ForelTheme.secondaryText
+        return configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(tint)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(ForelTheme.surface))
+            .overlay(Circle().strokeBorder(ForelTheme.surfaceBorder))
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Circle())
+    }
+}
+
+// MARK: - Inputs
+
+/// Dark glass text field matching the surface styling.
+struct GlassField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundStyle(ForelTheme.primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ForelTheme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
+    }
+}
+
+/// A read-only folder path field with a "Choose…" button opening the native
+/// macOS Finder directory picker. Used everywhere a folder is selected.
+struct FolderField: View {
+    let placeholder: String
+    @Binding var path: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder").font(.system(size: 11)).foregroundStyle(ForelTheme.secondaryText)
+                Text(path.isEmpty ? placeholder : path)
+                    .font(.system(size: 12))
+                    .foregroundStyle(path.isEmpty ? ForelTheme.secondaryText : ForelTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ForelTheme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
+
+            Button("Choose…", action: choose).buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    private func choose() {
+        let chosen = FolderPicker.choose(startingAt: path)
+        if let chosen { path = chosen }
+    }
+}
+
+/// Native macOS Finder directory picker, shared by every folder selection.
+enum FolderPicker {
+    @MainActor
+    static func choose(startingAt path: String? = nil) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        if let path, !path.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: path)
+        }
+        return panel.runModal() == .OK ? panel.url?.path : nil
+    }
+}
+
+/// Visual picker for the 7 macOS Finder colour labels, shown as colour
+/// swatches instead of a free-text field. Binds to the capitalised colour
+/// name ("Red", "Blue", …); empty string means "no label".
+struct ColorLabelPicker: View {
+    @Binding var selection: String
+    var allowNone: Bool = true
+
+    /// Approximation of the macOS Finder label colours.
+    static let colors: [(name: String, color: Color)] = [
+        ("Red", .red),
+        ("Orange", .orange),
+        ("Yellow", .yellow),
+        ("Green", .green),
+        ("Blue", .blue),
+        ("Purple", .purple),
+        ("Gray", .gray),
+    ]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if allowNone {
+                swatch(name: "", color: nil)
+            }
+            ForEach(Self.colors, id: \.name) { item in
+                swatch(name: item.name, color: item.color)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func swatch(name: String, color: Color?) -> some View {
+        let isSelected = selection.lowercased() == name.lowercased()
+        return Button {
+            selection = name
+        } label: {
+            Circle()
+                .fill(color ?? ForelTheme.surface)
+                .frame(width: 22, height: 22)
+                .overlay {
+                    if color == nil {
+                        Image(systemName: "slash.circle").font(.system(size: 12)).foregroundStyle(ForelTheme.secondaryText)
+                    } else if isSelected {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                    }
+                }
+                .overlay {
+                    Circle().strokeBorder(isSelected ? Color.white : ForelTheme.surfaceBorder, lineWidth: isSelected ? 2 : 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .help(name.isEmpty ? "No label" : name)
     }
 }

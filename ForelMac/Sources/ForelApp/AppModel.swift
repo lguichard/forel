@@ -159,6 +159,31 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Reverts every still-applied, reversible entry in a batch. Entries are
+    /// undone in reverse application order so chained actions on the same file
+    /// (e.g. tag then rename) revert correctly.
+    func undoBatch(_ batchId: String) {
+        let entries = (try? db.listHistoryBatch(batchId)) ?? []
+        let reversible = entries
+            .filter { $0.status == .applied && $0.reversible }
+            .reversed()
+
+        var failures: [String] = []
+        for entry in reversible {
+            do {
+                try ActionExecutor.revert(Undo.fromJSON(entry.undo))
+                try db.markHistoryUndone(entry.id)
+            } catch {
+                failures.append("\((entry.originalPath as NSString).lastPathComponent): \(error)")
+            }
+        }
+
+        if !failures.isEmpty {
+            errorMessage = "Some actions could not be undone:\n" + failures.joined(separator: "\n")
+        }
+        reloadHistory()
+    }
+
     func togglePaused() {
         paused.toggle()
         try? db.setSetting("paused", paused ? "1" : "0")

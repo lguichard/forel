@@ -8,6 +8,8 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
+                .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 320)
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             if showHistory {
                 HistoryView(showHistory: $showHistory)
@@ -15,6 +17,7 @@ struct ContentView: View {
                 RuleListView(showHistory: $showHistory)
             }
         }
+        .toolbarBackground(ForelTheme.background, for: .windowToolbar)
         .alert("Error", isPresented: errorBinding) {
             Button("OK") { model.errorMessage = nil }
         } message: {
