@@ -4,6 +4,7 @@ import AppKit
 /// glyph used in the menu bar (`Resources/AppIcon.png`, `Resources/TrayIcon.png`
 /// — copied from the Tauri app's `assets/forel-icon.png` and
 /// `src-tauri/icons/tray-icon.png` so both versions ship the same artwork).
+@MainActor
 enum AppIcons {
     static let appIcon: NSImage? = loadImage("AppIcon")
     /// White-on-transparent leaf glyph, sized down for the menu bar.
