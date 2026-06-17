@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published var paused: Bool = false
     @Published var errorMessage: String?
     @Published var detailRoute: DetailRoute = .rules
+    @Published var appTheme: AppTheme = .system
     @Published var accentPreset: AccentPreset = .default
     /// Bumped whenever the accent colour changes, so views can force a full
     /// re-render with `.id(model.accentVersion)` — `ForelTheme.accent` is a
@@ -44,8 +45,16 @@ final class AppModel: ObservableObject {
         self.accentPreset = preset
         ForelTheme.apply(preset)
 
+        let storedTheme = (try? db.getSetting("theme")) ?? nil
+        self.appTheme = storedTheme.flatMap(AppTheme.init(rawValue:)) ?? .system
+
         reloadFolders()
         startWatchingEnabledFolders()
+    }
+
+    func setAppTheme(_ theme: AppTheme) {
+        appTheme = theme
+        try? db.setSetting("theme", theme.rawValue)
     }
 
     func setAccentPreset(_ preset: AccentPreset) {

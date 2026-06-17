@@ -119,7 +119,6 @@ struct RuleEditorView: View {
         .padding(16)
         .frame(width: 600, height: 620)
         .background(ForelTheme.background)
-        .preferredColorScheme(.dark)
     }
 
     private func placeholder(_ text: String) -> some View {
@@ -211,7 +210,7 @@ private struct ActionRow: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.03)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ForelTheme.surface))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
     }
 

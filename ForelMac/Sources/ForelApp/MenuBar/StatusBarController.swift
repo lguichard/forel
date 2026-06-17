@@ -58,8 +58,10 @@ final class StatusBarController: NSObject {
     }
 
     private func openForel() {
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        let targetWindow = window ?? NSApp.windows.first { !($0 is NSPanel) }
+        targetWindow?.makeKeyAndOrderFront(nil)
+        targetWindow?.orderFrontRegardless()
+        NSApp.activate()
     }
 
     /// Menu bar glyph: the white Forel leaf, with a colour dot composited in

@@ -91,6 +91,7 @@ struct SidebarView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             model.selectedFolderId = folder.id
+            model.detailRoute = .rules
             model.reloadRules()
         }
         .contextMenu {

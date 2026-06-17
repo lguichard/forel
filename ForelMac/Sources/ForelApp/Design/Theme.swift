@@ -1,24 +1,51 @@
 import SwiftUI
+import AppKit
 
-/// Dark "glass" palette for the menu-bar quick panel and main window,
-/// inspired by Vorssaint's popover style: near-black translucent background,
-/// an accent colour, soft white-opacity surfaces instead of hard borders.
+enum AppTheme: String, CaseIterable {
+    case system, light, dark
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+/// Glass palette for the menu-bar quick panel and main window. Colours are
+/// dynamic so the user's Light/Dark/System setting can drive every view.
 @MainActor
 enum ForelTheme {
-    static let background = Color(red: 0.07, green: 0.07, blue: 0.10)
+    static let background = Color(light: NSColor(red: 0.94, green: 0.95, blue: 0.97, alpha: 1),
+                                  dark: NSColor(red: 0.07, green: 0.07, blue: 0.10, alpha: 1))
     /// Mutable so the user can change it from Settings; defaults to the same
     /// system blue (#0A84FF) used as the accent in the Tauri version.
     static var accent: Color = AccentPreset.blue.color
     static let success = Color(red: 0.20, green: 0.78, blue: 0.35)
     static let danger = Color(red: 1.0, green: 0.27, blue: 0.23)
-    static let primaryText = Color.white
-    static let secondaryText = Color.white.opacity(0.55)
-    static let divider = Color.white.opacity(0.08)
-    static let surface = Color.white.opacity(0.045)
-    static let surfaceBorder = Color.white.opacity(0.06)
+    static let primaryText = Color(light: NSColor(red: 0.10, green: 0.11, blue: 0.14, alpha: 1),
+                                   dark: .white)
+    static let secondaryText = Color(light: NSColor(red: 0.38, green: 0.40, blue: 0.46, alpha: 1),
+                                     dark: NSColor(white: 1, alpha: 0.55))
+    static let divider = Color(light: NSColor(white: 0, alpha: 0.08),
+                               dark: NSColor(white: 1, alpha: 0.08))
+    static let surface = Color(light: NSColor(white: 1, alpha: 0.72),
+                               dark: NSColor(white: 1, alpha: 0.045))
+    static let surfaceBorder = Color(light: NSColor(white: 0, alpha: 0.08),
+                                     dark: NSColor(white: 1, alpha: 0.06))
 
     static func apply(_ preset: AccentPreset) {
         accent = preset.color
+    }
+}
+
+private extension Color {
+    init(light: NSColor, dark: NSColor) {
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark ? dark : light
+        })
     }
 }
 

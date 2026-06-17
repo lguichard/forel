@@ -25,7 +25,7 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(model.appTheme.colorScheme)
         .tint(ForelTheme.accent)
         // ForelTheme.accent is a plain static var, not observable; bumping the
         // identity here forces every descendant to rebuild and re-read it.

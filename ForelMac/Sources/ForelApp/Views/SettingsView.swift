@@ -1,13 +1,8 @@
 import SwiftUI
 
-private enum AppTheme: String, CaseIterable {
-    case system, light, dark
-}
-
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var updater: UpdaterManager
-    @State private var theme: AppTheme = .system
     @State private var launchAtLogin = LoginItem.isEnabled
 
     var body: some View {
@@ -79,9 +74,6 @@ struct SettingsView: View {
         .frame(minWidth: 460)
         .background(ForelTheme.background)
         .onAppear {
-            let storedTheme = (try? model.db.getSetting("theme")) ?? nil
-            theme = AppTheme(rawValue: storedTheme ?? "system") ?? .system
-
             let storedLogin = (try? model.db.getSetting("launch_at_login")) ?? nil
             launchAtLogin = LoginItem.isEnabled || storedLogin == "1"
         }
@@ -104,10 +96,7 @@ struct SettingsView: View {
     }
 
     private var themeBinding: Binding<AppTheme> {
-        Binding(get: { theme }, set: { newValue in
-            theme = newValue
-            try? model.db.setSetting("theme", newValue.rawValue)
-        })
+        Binding(get: { model.appTheme }, set: { model.setAppTheme($0) })
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

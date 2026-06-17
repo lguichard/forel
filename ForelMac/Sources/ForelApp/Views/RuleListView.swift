@@ -264,6 +264,5 @@ private struct PreviewSheet: View {
         .padding(16)
         .frame(width: 480, height: 460)
         .background(ForelTheme.background)
-        .preferredColorScheme(.dark)
     }
 }
