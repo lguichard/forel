@@ -38,6 +38,31 @@ import SQLite3
         #expect(loaded.recursionDepth == 0)
     }
 
+    @Test func insertRulePersistsInitialConditionsAndActions() throws {
+        let db = try makeDB()
+        let folder = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)")
+        try db.insertFolder(folder)
+        var saved = makeRule(folderId: folder.id, name: "new complete rule", conditionMatch: .any)
+        saved.conditions = [
+            makeCondition(.name, .contains, "(1)", ruleId: saved.id),
+            makeCondition(.name, .contains, "(2)", ruleId: saved.id),
+        ]
+        saved.actions = [
+            makeAction(.delete, .object([:]), position: 0, ruleId: saved.id),
+        ]
+
+        try db.insertRule(saved)
+
+        let loaded = try #require(db.listRules(folderId: folder.id).first)
+        #expect(loaded.name == "new complete rule")
+        #expect(loaded.conditionMatch == .any)
+        #expect(loaded.conditions.map(\.value) == ["(1)", "(2)"])
+        #expect(loaded.conditions.allSatisfy { $0.ruleId == saved.id })
+        #expect(loaded.actions.count == 1)
+        #expect(loaded.actions[0].kind == .delete)
+        #expect(loaded.actions[0].ruleId == saved.id)
+    }
+
     @Test func ruleRoundTripPreservesEditorConditionFormatsAndScope() throws {
         let db = try makeDB()
         let folder = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)")

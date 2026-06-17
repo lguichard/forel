@@ -261,7 +261,7 @@ private struct ConditionRow: View {
         } else if condition.kind.isDateKind && condition.operator.isRelativeDateOperator {
             RelativeDateValueEditor(value: $condition.value)
         } else if condition.kind.isDateKind {
-            GlassField(placeholder: "YYYY-MM-DD", text: $condition.value)
+            AbsoluteDateValueEditor(value: $condition.value)
         } else {
             GlassField(placeholder: "Value", text: $condition.value)
         }
@@ -290,7 +290,7 @@ private struct ConditionRow: View {
                 if condition.kind.isDateKind {
                     let changedValueFormat = oldOperator.isRelativeDateOperator != newOperator.isRelativeDateOperator
                     if changedValueFormat || condition.value.trimmingCharacters(in: .whitespaces).isEmpty {
-                        condition.value = newOperator.isRelativeDateOperator ? "7 days" : ""
+                        condition.value = newOperator.isRelativeDateOperator ? "7 days" : DateValueFormatter.string(from: Date())
                     }
                 }
                 if condition.kind == .sizeBytes, condition.value.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -304,9 +304,32 @@ private struct ConditionRow: View {
         if kind == .kind { return "image" }
         if kind == .sizeBytes { return "0 bytes" }
         if kind.isDateKind {
-            return operator_.isRelativeDateOperator ? "7 days" : ""
+            return operator_.isRelativeDateOperator ? "7 days" : DateValueFormatter.string(from: Date())
         }
         return ""
+    }
+}
+
+private struct AbsoluteDateValueEditor: View {
+    @Binding var value: String
+
+    var body: some View {
+        DatePicker("", selection: dateBinding, displayedComponents: .date)
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .frame(width: 180, alignment: .leading)
+            .onAppear {
+                if DateValueFormatter.date(from: value) == nil {
+                    value = DateValueFormatter.string(from: Date())
+                }
+            }
+    }
+
+    private var dateBinding: Binding<Date> {
+        Binding(
+            get: { DateValueFormatter.date(from: value) ?? Date() },
+            set: { value = DateValueFormatter.string(from: $0) }
+        )
     }
 }
 
@@ -515,7 +538,7 @@ enum ConditionEditorLabels {
     }
 
     static func defaultOperator(for kind: ConditionKind) -> Operator {
-        kind.isDateKind ? .withinLast : operators(for: kind).first?.0 ?? .is
+        kind.isDateKind ? .before : operators(for: kind).first?.0 ?? .is
     }
 
     static let fileKinds: [(String, String)] = [
@@ -548,5 +571,23 @@ private extension ConditionKind {
 private extension Operator {
     var isRelativeDateOperator: Bool {
         self == .olderThan || self == .withinLast
+    }
+}
+
+private enum DateValueFormatter {
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    static func date(from value: String) -> Date? {
+        formatter.date(from: value.trimmingCharacters(in: .whitespaces))
+    }
+
+    static func string(from date: Date) -> String {
+        formatter.string(from: date)
     }
 }

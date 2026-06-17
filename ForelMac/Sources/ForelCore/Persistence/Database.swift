@@ -398,21 +398,26 @@ public final class Database: @unchecked Sendable {
 
     public func insertRule(_ rule: Rule) throws {
         let priority = try nextRulePriority(folderId: rule.folderId)
-        let stmt = try statement(
-            """
-            INSERT INTO rules (id, folder_id, name, enabled, condition_match, recursion_depth, priority, created_at)
-            VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
-            """
-        )
-        stmt.bind(1, rule.id)
-        stmt.bind(2, rule.folderId)
-        stmt.bind(3, rule.name)
-        stmt.bind(4, bool: rule.enabled)
-        stmt.bind(5, rule.conditionMatch == .any ? "any" : "all")
-        stmt.bind(6, rule.recursionDepth ?? -1)
-        stmt.bind(7, priority)
-        stmt.bind(8, rule.createdAt)
-        try stmt.runToCompletion()
+        try transaction {
+            let stmt = try statement(
+                """
+                INSERT INTO rules (id, folder_id, name, enabled, condition_match, recursion_depth, priority, created_at)
+                VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+                """
+            )
+            stmt.bind(1, rule.id)
+            stmt.bind(2, rule.folderId)
+            stmt.bind(3, rule.name)
+            stmt.bind(4, bool: rule.enabled)
+            stmt.bind(5, rule.conditionMatch == .any ? "any" : "all")
+            stmt.bind(6, rule.recursionDepth ?? -1)
+            stmt.bind(7, priority)
+            stmt.bind(8, rule.createdAt)
+            try stmt.runToCompletion()
+
+            for condition in rule.conditions { try insertCondition(condition) }
+            for action in rule.actions { try insertAction(action) }
+        }
     }
 
     public func updateRule(_ rule: Rule) throws {
