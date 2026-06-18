@@ -3,6 +3,14 @@
 All notable changes to Forel are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- Added metadata conditions for matching files by download website and download app, backed by macOS where-from metadata.
+
+### Fixed
+- Dry Run and Run Now no longer scan nested folders when only current-folder rules are enabled.
+
 ## [0.1.0-beta.3] - 2026-06-18
 
 ### Added

@@ -160,7 +160,11 @@ final class AppModel: ObservableObject {
     func runNow() {
         guard !isRunningNow else { return }
         guard let folder = folders.first(where: { $0.id == selectedFolderId }) else { return }
-        let folderRules = rules
+        let folderRules = rules.filter(\.enabled)
+        guard !folderRules.isEmpty else {
+            showRunNowMessage("Run complete — no enabled rules")
+            return
+        }
         isRunningNow = true
         Task {
             defer { isRunningNow = false }
@@ -203,7 +207,10 @@ final class AppModel: ObservableObject {
         guard let folder = folders.first(where: { $0.id == selectedFolderId }) else {
             return PreviewResult(filesScanned: 0, matches: [])
         }
-        let folderRules = rules
+        let folderRules = rules.filter(\.enabled)
+        guard !folderRules.isEmpty else {
+            return PreviewResult(filesScanned: 0, matches: [])
+        }
         let maxDepth = RuleEngine.maxRuleDepth(folderRules)
         let entries = RuleEngine.walkEntries(root: folder.path, maxDepth: maxDepth)
         let matches = entries.compactMap { entry in

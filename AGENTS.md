@@ -48,6 +48,10 @@ forel/
 - Rules, conditions, actions, and history are stored in SQLite.
 - The rule engine lives in `Sources/ForelCore/Engine`.
 - UI changes that affect persistence should be backed by tests in `Tests/ForelCoreTests`.
+- Rule behavior changes must be checked across all three execution paths:
+  Dry Run preview, manual Run Now, and automatic watcher execution. Scope,
+  recursion depth, matching, and action-chain changes should include tests or
+  explicit verification that these paths stay consistent.
 
 ## Build and test commands
 

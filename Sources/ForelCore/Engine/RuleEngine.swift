@@ -260,8 +260,10 @@ public enum RuleEngine {
     }
 
     public static func maxRuleDepth(_ rules: [Rule]) -> Int? {
-        if rules.contains(where: { $0.recursionDepth == nil }) { return nil }
-        return rules.compactMap { rule in
+        let enabledRules = rules.filter(\.enabled)
+        guard !enabledRules.isEmpty else { return 0 }
+        if enabledRules.contains(where: { $0.recursionDepth == nil }) { return nil }
+        return enabledRules.compactMap { rule in
             rule.recursionDepth.map { max(0, Int($0)) }
         }.max()
     }
