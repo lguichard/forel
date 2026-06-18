@@ -20,8 +20,6 @@ import AppKit
 import ZIPFoundation
 
 /// How a file's text was obtained. Drives the Dry Run's per-condition detail.
-/// Cases marked Phase 2 are reserved so the display and call sites don't need to
-/// change when those extractors are added.
 public enum ContentStrategy: String, Sendable {
     case plainText
     case pdfText
@@ -30,8 +28,8 @@ public enum ContentStrategy: String, Sendable {
     case officeDocument  // .doc / .docx via AppKit
     case xlsx
     case pptx
+    case openDocument    // .odt / .ods / .odp
     case iWork
-    case officeLegacy    // Phase 2
     case spotlight
     case imageOCR
     case none
@@ -46,8 +44,8 @@ public enum ContentStrategy: String, Sendable {
         case .officeDocument: return "Word document"
         case .xlsx: return "Spreadsheet"
         case .pptx: return "Presentation"
+        case .openDocument: return "OpenDocument"
         case .iWork: return "iWork document"
-        case .officeLegacy: return "Office document"
         case .spotlight: return "Spotlight"
         case .imageOCR: return "Image OCR"
         case .none: return "No readable content"
@@ -92,7 +90,7 @@ public enum ContentExtractor {
     /// For these we fall back to a Spotlight search, which only answers the
     /// `contains` operator (see `spotlightContains`).
     private static let spotlightFallbackExtensions: Set<String> = [
-        "xls", "ppt", "pages", "numbers", "key", "odt", "ods", "odp", "epub",
+        "xls", "ppt", "pages", "numbers", "key", "epub",
     ]
 
     /// Runs the ordered extraction pipeline for `path`, dispatching on the file
@@ -119,6 +117,8 @@ public enum ContentExtractor {
             return extractXLSX(path: path, size: size)
         case "pptx":
             return extractPPTX(path: path, size: size)
+        case "odt", "ods", "odp":
+            return extractOpenDocument(path: path, size: size)
         case "pages", "numbers", "key":
             return extractIWork(path: path, size: size)
         default:
@@ -334,6 +334,24 @@ public enum ContentExtractor {
             return ContentExtraction(text: nil, strategy: .none, message: "Presentation has no readable text.")
         }
         return ContentExtraction(text: text, strategy: .pptx)
+    }
+
+    // MARK: - OpenDocument (.odt / .ods / .odp)
+
+    /// OpenDocument files are zip archives whose body text lives in a single,
+    /// well-documented `content.xml` part. Read it and strip the markup.
+    private static func extractOpenDocument(path: String, size: UInt64) -> ContentExtraction {
+        if size > officeZipMaxBytes {
+            return ContentExtraction(text: nil, strategy: .none, message: "Document exceeds the 100 MB limit.")
+        }
+        guard let xml = zipText(path: path, matching: { $0 == "content.xml" }) else {
+            return ContentExtraction(text: nil, strategy: .none, message: "Could not read document.")
+        }
+        let text = strippedXMLText(xml)
+        if text.isEmpty {
+            return ContentExtraction(text: nil, strategy: .none, message: "Document has no readable text.")
+        }
+        return ContentExtraction(text: text, strategy: .openDocument)
     }
 
     /// Reads and concatenates the contents of every archive member whose path

@@ -105,6 +105,25 @@ import AppKit
         #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "Tokyo"), path: pptx))
     }
 
+    @Test func openDocumentTextIsExtracted() throws {
+        let dir = TempDir()
+        let odt = makeOpenDocument(in: dir, name: "notes.odt", text: "Hello OpenDocument world")
+
+        let result = ContentExtractor.extract(path: odt)
+        #expect(result.strategy == .openDocument)
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "OpenDocument"), path: odt))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "Microsoft"), path: odt))
+    }
+
+    @Test func openDocumentSpreadsheetIsExtracted() throws {
+        let dir = TempDir()
+        let ods = makeOpenDocument(in: dir, name: "budget.ods", text: "Revenue 4242 EUR")
+
+        let result = ContentExtractor.extract(path: ods)
+        #expect(result.strategy == .openDocument)
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "4242"), path: ods))
+    }
+
     @Test func iWorkFlatFileReadsPreviewPDF() throws {
         let dir = TempDir()
         let pages = makeIWorkFlatFile(in: dir, name: "proposal.pages", previewText: "Project proposal for Acme")
@@ -343,6 +362,22 @@ private func makePPTX(in dir: TempDir, slides: [String]) -> String {
     let pptx = (dir.path as NSString).appendingPathComponent("deck.pptx")
     zipStaging(staging, topLevel: "ppt", into: pptx)
     return pptx
+}
+
+/// Builds an OpenDocument file (a zip with a `content.xml` body part).
+private func makeOpenDocument(in dir: TempDir, name: String, text: String) -> String {
+    let staging = dir.dir("odf-staging-\(name)")
+    let xml = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+    <office:body><office:text><text:p>\(text)</text:p></office:text></office:body>
+    </office:document-content>
+    """
+    try! xml.write(toFile: (staging as NSString).appendingPathComponent("content.xml"), atomically: true, encoding: .utf8)
+
+    let doc = (dir.path as NSString).appendingPathComponent(name)
+    zipStaging(staging, topLevel: "content.xml", into: doc)
+    return doc
 }
 
 /// Builds a flat-file (zip) iWork document containing `QuickLook/Preview.pdf`.

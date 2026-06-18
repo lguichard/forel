@@ -7,7 +7,7 @@ All notable changes to Forel are documented here. Format loosely follows
 
 ### Added
 - Added metadata conditions for matching files by download website and download app, backed by macOS where-from metadata.
-- The Contents condition now matches text inside PDFs (including scanned PDFs via OCR), Word documents, Excel spreadsheets (.xlsx), PowerPoint presentations (.pptx), Apple iWork documents (Pages, Numbers, Keynote), RTF files, and images (via OCR), and the Dry Run shows which content was read.
+- The Contents condition now matches text inside PDFs (including scanned PDFs via OCR), Word documents, Excel spreadsheets (.xlsx), PowerPoint presentations (.pptx), Apple iWork documents (Pages, Numbers, Keynote), OpenDocument files (.odt, .ods, .odp), RTF files, and images (via OCR), and the Dry Run shows which content was read.
 - The Contents condition can also match other indexed formats (.xls, .ppt, Pages, Numbers, Keynote, OpenDocument, EPUB) through the macOS Spotlight index, for "contains" matching when the file has been indexed.
 
 ### Changed

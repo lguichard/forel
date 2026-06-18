@@ -188,8 +188,9 @@ Run tells you why.
 | Excel | `.xlsx` | 100 MB |
 | PowerPoint | `.pptx` | 100 MB |
 | Apple iWork | `.pages` `.numbers` `.key` | 100 MB |
+| OpenDocument | `.odt` `.ods` `.odp` | 100 MB |
 | Images (OCR) | `.png` `.jpg` `.jpeg` `.heic` `.tiff` `.tif` | 25 MB / 12000 px |
-| Spotlight fallback | `.xls` `.ppt` `.odt` `.ods` `.odp` `.epub` | `contains` only |
+| Spotlight fallback | `.xls` `.ppt` `.epub` | `contains` only |
 
 > [!NOTE]
 > **Apple iWork** files are read from the preview the app saves inside the
