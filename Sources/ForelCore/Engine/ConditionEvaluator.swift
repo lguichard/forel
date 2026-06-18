@@ -68,7 +68,7 @@ public enum ConditionEvaluator {
             let maxContentBytes: UInt64 = 10 * 1024 * 1024
             let size = (attrs[.size] as? UInt64) ?? 0
             if size > maxContentBytes { return false }
-            let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
             return matchString(condition.operator, text, condition.value)
 
         case .createdAt:

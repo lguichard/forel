@@ -49,13 +49,20 @@ import Foundation
     @Test func stringKindsMatchEveryDeclaredOperator() {
         let dir = TempDir()
         let file = dir.file("report.txt", contents: "the quarterly report")
-        let fixtures: [Operator: String] = [
-            .is: "report", .isNot: "nope", .contains: "epo", .doesNotContain: "zzz",
-            .startsWith: "rep", .endsWith: "ort", .matchesRegex: "^rep.*",
+        let fixtures: [ConditionKind: [Operator: String]] = [
+            .name: [
+                .is: "report", .isNot: "nope", .contains: "epo", .doesNotContain: "zzz",
+                .startsWith: "rep", .endsWith: "ort", .matchesRegex: "^rep.*",
+            ],
+            .contents: [
+                .is: "the quarterly report", .isNot: "report", .contains: "quarter",
+                .doesNotContain: "annual", .startsWith: "the", .endsWith: "report",
+                .matchesRegex: "quarterly\\s+report",
+            ],
         ]
-        for kind in [ConditionKind.name] {
-            assertExhaustive(kind, fixtures)
-            for (op, value) in fixtures {
+        for (kind, values) in fixtures {
+            assertExhaustive(kind, values)
+            for (op, value) in values {
                 #expect(ConditionEvaluator.evaluate(makeCondition(kind, op, value), path: file), "\(kind) \(op) should match")
             }
         }

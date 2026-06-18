@@ -31,6 +31,36 @@ import Foundation
         #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "paid"), path: file))
     }
 
+    @Test func contentsConditionReadsFileAndMatchesEveryStringOperator() throws {
+        let dir = TempDir()
+        let file = dir.file("notes.txt", contents: "Alpha receipt\nTotal: 42 EUR\nPaid in full")
+
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .is, "Alpha receipt\nTotal: 42 EUR\nPaid in full"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .isNot, "Alpha receipt"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "Total: 42"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .doesNotContain, "Refunded"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .startsWith, "Alpha"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .endsWith, "full"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .matchesRegex, #"(?s)receipt.*Paid"#), path: file))
+
+        try "Different contents".write(toFile: file, atomically: true, encoding: .utf8)
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "Total: 42"), path: file))
+    }
+
+    @Test func contentsConditionDoesNotMatchUnreadableOrOversizedContent() throws {
+        let dir = TempDir()
+        let binary = (dir.path as NSString).appendingPathComponent("binary.dat")
+        try Data([0xff, 0xfe, 0xfd]).write(to: URL(fileURLWithPath: binary))
+
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "anything"), path: binary))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .doesNotContain, "anything"), path: binary))
+
+        let large = (dir.path as NSString).appendingPathComponent("large.txt")
+        let data = Data(repeating: UInt8(ascii: "a"), count: 10 * 1024 * 1024 + 1)
+        try data.write(to: URL(fileURLWithPath: large))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "a"), path: large))
+    }
+
     @Test func tagConditionMatchesAllSupportedStringOperators() throws {
         let dir = TempDir()
         let file = dir.file("document.txt", contents: "hello")
