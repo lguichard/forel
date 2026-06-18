@@ -8,8 +8,12 @@ All notable changes to Forel are documented here. Format loosely follows
 ### Added
 - Added metadata conditions for matching files by download website and download app, backed by macOS where-from metadata.
 
+### Changed
+- The rule editor now warns that all-level subfolder scans can slow execution in folders with many files.
+
 ### Fixed
 - Dry Run and Run Now no longer scan nested folders when only current-folder rules are enabled.
+- The main window now has a larger minimum size so rule controls stay visible when resized.
 
 ## [0.1.0-beta.3] - 2026-06-18
 

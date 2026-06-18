@@ -200,6 +200,19 @@ private struct ScopeEditor: View {
                         .foregroundStyle(ForelTheme.secondaryText)
                     Spacer()
                 }
+
+                if depth == nil {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.orange)
+                        Text("All levels can slow execution in folders with many files. Use with caution.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(ForelTheme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, 52)
+                }
             }
         }
     }

@@ -18,7 +18,7 @@ struct ForelMacApp: App {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(updater)
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(minWidth: 960, minHeight: 520)
                 .onAppear {
                     appDelegate.configure(model: model, updater: updater)
                 }

@@ -7,7 +7,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 320)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 270, max: 320)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             switch model.detailRoute {
