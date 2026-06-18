@@ -16,6 +16,7 @@ import Foundation
             #expect(kind.validOperators.contains(kind.defaultOperator), "\(kind) default operator not in its valid set")
             #expect(!kind.label.isEmpty)
         }
+        #expect(!RuleSchema.conditionKinds.contains(.rawWhereFromMetadata))
     }
 
     @Test func everyActionKindHasLabelIconAndUniqueParamKeys() {
@@ -37,6 +38,11 @@ import Foundation
         // Non-date kinds keep their base editor.
         #expect(RuleSchema.valueKind(for: .sizeBytes, operator: .greaterThan) == .size)
         #expect(RuleSchema.valueKind(for: .colorLabel, operator: .is) == .colorLabel)
+        // downloadedWithApp gets the installed-apps picker and only supports
+        // exact app selection in the editor.
+        #expect(RuleSchema.valueKind(for: .downloadedWithApp, operator: .is) == .appPicker)
+        // The remaining user-facing metadata kind stays plain text.
+        #expect(RuleSchema.valueKind(for: .downloadedFromWebsite, operator: .is) == .text)
     }
 
     // MARK: - Engine handles every declared operator
@@ -139,10 +145,7 @@ import Foundation
         let file = dir.file("installer.dmg")
         try setQuarantineAgent(file, agent: "Safari")
 
-        let fixtures: [Operator: String] = [
-            .is: "Safari", .isNot: "Chrome", .contains: "afa", .doesNotContain: "chrome",
-            .startsWith: "Saf", .endsWith: "ari", .matchesRegex: "^Saf.*",
-        ]
+        let fixtures: [Operator: String] = [.is: "Safari"]
         assertExhaustive(.downloadedWithApp, fixtures)
         for (op, value) in fixtures {
             #expect(ConditionEvaluator.evaluate(makeCondition(.downloadedWithApp, op, value), path: file), "downloadedWithApp \(op) should match")

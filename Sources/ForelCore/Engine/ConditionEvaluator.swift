@@ -89,8 +89,10 @@ public enum ConditionEvaluator {
             return matchAnyOf(condition.operator, DownloadMetadata.websiteURLs(path), condition.value)
 
         case .downloadedWithApp:
-            let values = DownloadMetadata.downloadedWithApp(path).map { [$0] } ?? []
-            return matchAnyOf(condition.operator, values, condition.value)
+            guard let app = DownloadMetadata.downloadedWithApp(path) else {
+                return matchAnyOf(condition.operator, [], condition.value)
+            }
+            return matchDownloadedApp(condition.operator, app, condition.value)
 
         case .rawWhereFromMetadata:
             return matchAnyOf(condition.operator, DownloadMetadata.whereFroms(path), condition.value)
@@ -117,6 +119,28 @@ public enum ConditionEvaluator {
         default:
             return false
         }
+    }
+
+    private static func matchDownloadedApp(_ operator_: Operator, _ actual: String, _ expected: String) -> Bool {
+        switch operator_ {
+        case .is:
+            return appNamesMatch(actual: actual, expected: expected)
+        case .isNot:
+            return !appNamesMatch(actual: actual, expected: expected)
+        default:
+            return matchAnyOf(operator_, [actual], expected)
+        }
+    }
+
+    private static func appNamesMatch(actual: String, expected: String) -> Bool {
+        actual == expected || actual == quarantineAgentAlias(forAppName: expected)
+    }
+
+    private static func quarantineAgentAlias(forAppName name: String) -> String {
+        if name.hasPrefix("Google ") {
+            return String(name.dropFirst("Google ".count))
+        }
+        return name
     }
 
     /// macOS "Date Added" (when the file was added to its current folder). Not

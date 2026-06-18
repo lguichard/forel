@@ -54,6 +54,9 @@ public enum ConditionValueKind: Sendable, Equatable {
     case relativeDate
     case fileKind
     case colorLabel
+    /// Free text combined with a suggestion list (e.g. installed apps) —
+    /// still a plain string value underneath, just with autocomplete.
+    case appPicker
 }
 
 // MARK: - Condition kinds
@@ -89,8 +92,10 @@ public extension ConditionKind {
         case .kind, .colorLabel:
             return [.is, .isNot]
         case .name, .extension_, .tags, .contents,
-             .downloadedFromWebsite, .downloadedWithApp, .rawWhereFromMetadata:
+             .downloadedFromWebsite, .rawWhereFromMetadata:
             return [.is, .isNot, .contains, .doesNotContain, .startsWith, .endsWith, .matchesRegex]
+        case .downloadedWithApp:
+            return [.is]
         }
     }
 
@@ -107,7 +112,8 @@ public extension ConditionKind {
         case .colorLabel: return .colorLabel
         case .createdAt, .dateModified, .dateAdded: return .absoluteDate
         case .name, .extension_, .tags, .contents,
-             .downloadedFromWebsite, .downloadedWithApp, .rawWhereFromMetadata: return .text
+             .downloadedFromWebsite, .rawWhereFromMetadata: return .text
+        case .downloadedWithApp: return .appPicker
         }
     }
 
@@ -248,7 +254,7 @@ public enum RuleSchema {
             .createdAt, .dateModified, .dateAdded,
         ]),
         ConditionKindGroup(title: "Metadata", kinds: [
-            .downloadedFromWebsite, .downloadedWithApp, .rawWhereFromMetadata,
+            .downloadedFromWebsite, .downloadedWithApp,
         ]),
     ]
 

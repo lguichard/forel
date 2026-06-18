@@ -165,6 +165,14 @@ import Darwin
         #expect(!ConditionEvaluator.evaluate(makeCondition(.downloadedWithApp, .is, "Chrome"), path: file))
     }
 
+    @Test func downloadedWithAppMatchesChromeBundleDisplayName() throws {
+        let dir = TempDir()
+        let file = dir.file("release.zip")
+        try setQuarantineAgent(file, agent: "Chrome")
+
+        #expect(ConditionEvaluator.evaluate(makeCondition(.downloadedWithApp, .is, "Google Chrome"), path: file))
+    }
+
     @Test func rawWhereFromMetadataMatchesAnyStoredValue() throws {
         let dir = TempDir()
         let file = dir.file("note.txt")

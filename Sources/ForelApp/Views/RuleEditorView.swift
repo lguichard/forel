@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import ForelCore
 
@@ -285,6 +286,8 @@ private struct ConditionRow: View {
             ColorLabelPicker(selection: $condition.value, allowNone: false)
         case .fileKind:
             KindValuePicker(value: $condition.value)
+        case .appPicker:
+            AppPickerField(value: $condition.value)
         case .size:
             SizeValueEditor(value: $condition.value)
         case .relativeDate:
@@ -472,6 +475,51 @@ private struct SizeValueEditor: View {
         let rawUnit = pieces.count > 1 ? pieces[1] : "MB"
         let unit = ["bytes", "KB", "MB", "GB"].contains(rawUnit) ? rawUnit : "MB"
         return ((number?.isEmpty == false ? number! : "0"), unit)
+    }
+}
+
+/// Text field showing the matched app's real icon (same idea as `FolderField`),
+/// with a "Choose…" button that opens a Finder-style picker scoped to
+/// `/Applications`. Stays a plain text field underneath so a missing or
+/// differently named quarantine agent can still be typed manually.
+private struct AppPickerField: View {
+    @Binding var value: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                iconView
+                TextField("App name", text: $value)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(ForelTheme.primaryText)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(ForelTheme.surface))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
+
+            Button("Choose…", action: choose).buttonStyle(SecondaryButtonStyle())
+        }
+    }
+
+    @ViewBuilder private var iconView: some View {
+        if let path = InstalledApps.path(forName: value) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+                .resizable()
+                .frame(width: 16, height: 16)
+        } else {
+            Image(systemName: "app.dashed")
+                .font(.system(size: 12))
+                .foregroundStyle(ForelTheme.secondaryText)
+                .frame(width: 16, height: 16)
+        }
+    }
+
+    private func choose() {
+        if let app = InstalledApps.pickFromFinder() {
+            value = app.name
+        }
     }
 }
 
