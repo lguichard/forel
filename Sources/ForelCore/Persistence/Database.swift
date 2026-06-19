@@ -6,7 +6,7 @@ import Foundation
 /// schema exactly so the existing alpha database at
 /// `~/Library/Application Support/com.forel.app/forel.db` keeps working.
 public final class Database: @unchecked Sendable {
-    public static let currentSchemaVersion: Int64 = 4
+    public static let currentSchemaVersion: Int64 = 5
 
     private let handle: OpaquePointer
     private let lock = NSLock()
@@ -83,6 +83,7 @@ public final class Database: @unchecked Sendable {
                 id          TEXT PRIMARY KEY,
                 path        TEXT NOT NULL UNIQUE,
                 enabled     INTEGER NOT NULL DEFAULT 1,
+                priority    INTEGER NOT NULL DEFAULT 0,
                 created_at  TEXT NOT NULL
             );
 
@@ -152,6 +153,7 @@ public final class Database: @unchecked Sendable {
         if version < 2 { try runMigration(2) { try self.migrateV2AddActionHistory() } }
         if version < 3 { try runMigration(3) { try self.migrateV3AddAppSettings() } }
         if version < 4 { try runMigration(4) { try self.migrateV4AddHistoryMessage() } }
+        if version < 5 { try runMigration(5) { try self.migrateV5AddFolderPriority() } }
     }
 
     private func runMigration(_ version: Int64, _ apply: () throws -> Void) throws {
@@ -196,6 +198,23 @@ public final class Database: @unchecked Sendable {
     private func migrateV4AddHistoryMessage() throws {
         if try tableHasColumn("action_history", "message") { return }
         try exec("ALTER TABLE action_history ADD COLUMN message TEXT;")
+    }
+
+    private func migrateV5AddFolderPriority() throws {
+        if try tableHasColumn("watched_folders", "priority") { return }
+        try exec("ALTER TABLE watched_folders ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;")
+
+        let select = try statement("SELECT id FROM watched_folders ORDER BY created_at")
+        var ids: [String] = []
+        while try select.step() {
+            ids.append(select.columnText(0))
+        }
+        for (index, id) in ids.enumerated() {
+            let update = try statement("UPDATE watched_folders SET priority=?1 WHERE id=?2")
+            update.bind(1, Int64(index))
+            update.bind(2, id)
+            try update.runToCompletion()
+        }
     }
 
     // MARK: - App settings
@@ -313,10 +332,10 @@ public final class Database: @unchecked Sendable {
     // MARK: - Watched folders
 
     public func listFolders() throws -> [WatchedFolder] {
-        let stmt = try statement("SELECT id, path, enabled, created_at FROM watched_folders ORDER BY created_at")
+        let stmt = try statement("SELECT id, path, enabled, priority, created_at FROM watched_folders ORDER BY priority, created_at")
         var folders: [WatchedFolder] = []
         while try stmt.step() {
-            folders.append(WatchedFolder(id: stmt.columnText(0), path: stmt.columnText(1), enabled: stmt.columnBool(2), createdAt: stmt.columnText(3)))
+            folders.append(WatchedFolder(id: stmt.columnText(0), path: stmt.columnText(1), enabled: stmt.columnBool(2), priority: stmt.columnInt64(3), createdAt: stmt.columnText(4)))
         }
         return folders
     }
@@ -337,12 +356,20 @@ public final class Database: @unchecked Sendable {
         return Array(pathComponents.prefix(prefixComponents.count)) == prefixComponents
     }
 
+    private func nextFolderPriority() throws -> Int64 {
+        let stmt = try statement("SELECT COALESCE(MAX(priority) + 1, 0) FROM watched_folders")
+        _ = try stmt.step()
+        return stmt.columnInt64(0)
+    }
+
     public func insertFolder(_ folder: WatchedFolder) throws {
-        let stmt = try statement("INSERT INTO watched_folders (id, path, enabled, created_at) VALUES (?1,?2,?3,?4)")
+        let priority = try nextFolderPriority()
+        let stmt = try statement("INSERT INTO watched_folders (id, path, enabled, priority, created_at) VALUES (?1,?2,?3,?4,?5)")
         stmt.bind(1, folder.id)
         stmt.bind(2, folder.path)
         stmt.bind(3, bool: folder.enabled)
-        stmt.bind(4, folder.createdAt)
+        stmt.bind(4, priority)
+        stmt.bind(5, folder.createdAt)
         try stmt.runToCompletion()
     }
 
@@ -357,6 +384,28 @@ public final class Database: @unchecked Sendable {
         stmt.bind(1, bool: enabled)
         stmt.bind(2, id)
         try stmt.runToCompletion()
+    }
+
+    public func reorderFolders(_ folderIds: [String]) throws {
+        let current = try listFolders()
+        guard current.count == folderIds.count else {
+            throw SQLiteError("reorder must include every watched folder")
+        }
+        guard Set(folderIds).count == folderIds.count else {
+            throw SQLiteError("reorder contains duplicate folder ids")
+        }
+        guard Set(folderIds) == Set(current.map(\.id)) else {
+            throw SQLiteError("reorder contains unknown or missing folder ids")
+        }
+
+        try transaction {
+            for (index, folderId) in folderIds.enumerated() {
+                let stmt = try statement("UPDATE watched_folders SET priority=?1 WHERE id=?2")
+                stmt.bind(1, Int64(index))
+                stmt.bind(2, folderId)
+                try stmt.runToCompletion()
+            }
+        }
     }
 
     // MARK: - Rules

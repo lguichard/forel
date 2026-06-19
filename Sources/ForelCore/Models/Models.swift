@@ -4,12 +4,14 @@ public struct WatchedFolder: Codable, Equatable, Sendable {
     public var id: String
     public var path: String
     public var enabled: Bool
+    public var priority: Int64
     public var createdAt: String
 
-    public init(id: String = UUID().uuidString, path: String, enabled: Bool = true, createdAt: String = ISO8601DateFormatter().string(from: Date())) {
+    public init(id: String = UUID().uuidString, path: String, enabled: Bool = true, priority: Int64 = 0, createdAt: String = ISO8601DateFormatter().string(from: Date())) {
         self.id = id
         self.path = path
         self.enabled = enabled
+        self.priority = priority
         self.createdAt = createdAt
     }
 }

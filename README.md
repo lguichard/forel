@@ -162,12 +162,13 @@ forel/
 - [x] Action history & undo
 - [x] Automatic updates
 - [x] Preferences: launch at login
+- [x] Shortcuts actions
+- [x] Drag & drop to reorder rules
+- [x] Rules based metadata files
 - [ ] Sync actions
 - [ ] Upload actions
 - [ ] Native notifications on rule actions
 - [ ] Activity logs
-- [ ] Drag & drop to reorder rules
-- [ ] Rules based metadata files
 - [ ] Automatic cleaning database
 - [ ] AI features
 

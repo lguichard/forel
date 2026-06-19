@@ -101,6 +101,50 @@ import SQLite3
         #expect(loaded.recursionDepth == nil)
     }
 
+    @Test func insertFolderAppendsToOrder() throws {
+        let db = try makeDB()
+        try db.insertFolder(WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-first"))
+        try db.insertFolder(WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-second"))
+        try db.insertFolder(WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-third"))
+
+        let loaded = try db.listFolders()
+        #expect(loaded.map(\.priority) == [0, 1, 2])
+    }
+
+    @Test func reorderFoldersPersistsRequestedOrder() throws {
+        let db = try makeDB()
+        let first = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-first")
+        let second = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-second")
+        let third = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-third")
+        try db.insertFolder(first)
+        try db.insertFolder(second)
+        try db.insertFolder(third)
+
+        try db.reorderFolders([third.id, first.id, second.id])
+
+        let loaded = try db.listFolders()
+        #expect(loaded.map(\.path) == [third.path, first.path, second.path])
+        #expect(loaded.map(\.priority) == [0, 1, 2])
+    }
+
+    @Test func reorderFoldersRejectsInvalidFolderSets() throws {
+        let db = try makeDB()
+        let first = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-first")
+        let second = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-second")
+        try db.insertFolder(first)
+        try db.insertFolder(second)
+
+        #expect(throws: (any Error).self) {
+            try db.reorderFolders([first.id])
+        }
+        #expect(throws: (any Error).self) {
+            try db.reorderFolders([first.id, first.id])
+        }
+        #expect(throws: (any Error).self) {
+            try db.reorderFolders([first.id, UUID().uuidString])
+        }
+    }
+
     @Test func insertRuleAppendsToFolderOrder() throws {
         let db = try makeDB()
         let folder = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)")

@@ -1,8 +1,11 @@
 import SwiftUI
 import ForelCore
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
     @EnvironmentObject var model: AppModel
+    @State private var draggedFolderId: String?
+    @State private var insertionIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -20,18 +23,47 @@ struct SidebarView: View {
                 .help("Add a folder to watch")
             }
 
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(model.folders, id: \.id) { folder in
-                        folderCard(folder)
-                    }
+            if model.folders.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(model.folders.enumerated()), id: \.element.id) { index, folder in
+                            folderDropTarget(index)
 
-                    if model.folders.isEmpty {
-                        emptyState
+                            folderCard(folder)
+                                .opacity(draggedFolderId == folder.id ? 0.55 : 1)
+                                .onDrag {
+                                    draggedFolderId = folder.id
+                                    return NSItemProvider(object: folder.id as NSString)
+                                }
+                                .onDrop(
+                                    of: [.plainText],
+                                    delegate: FolderInsertionDropDelegate(
+                                        insertionIndex: index,
+                                        folders: model.folders,
+                                        draggedFolderId: $draggedFolderId,
+                                        activeInsertionIndex: $insertionIndex,
+                                        move: model.reorderFolders
+                                    )
+                                )
+                        }
+                        folderDropTarget(model.folders.count)
                     }
+                    .animation(.easeInOut(duration: 0.12), value: insertionIndex)
+                    .onDrop(
+                        of: [.plainText],
+                        delegate: FolderInsertionDropDelegate(
+                            insertionIndex: model.folders.count,
+                            folders: model.folders,
+                            draggedFolderId: $draggedFolderId,
+                            activeInsertionIndex: $insertionIndex,
+                            move: model.reorderFolders
+                        )
+                    )
                 }
+                .scrollIndicators(.never)
             }
-            .scrollIndicators(.never)
 
             Spacer(minLength: 0)
 
@@ -48,9 +80,39 @@ struct SidebarView: View {
         .background(ForelTheme.background)
     }
 
+    private func folderDropTarget(_ index: Int) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.clear)
+                .frame(height: 10)
+
+            if insertionIndex == index, draggedFolderId != nil {
+                Capsule()
+                    .fill(ForelTheme.accent)
+                    .frame(height: 2)
+                    .shadow(color: ForelTheme.accent.opacity(0.35), radius: 2, y: 1)
+            }
+        }
+        .contentShape(Rectangle())
+        .onDrop(
+            of: [.plainText],
+            delegate: FolderInsertionDropDelegate(
+                insertionIndex: index,
+                folders: model.folders,
+                draggedFolderId: $draggedFolderId,
+                activeInsertionIndex: $insertionIndex,
+                move: model.reorderFolders
+            )
+        )
+    }
+
     private func folderCard(_ folder: WatchedFolder) -> some View {
         let isSelected = model.selectedFolderId == folder.id
         return HStack(spacing: 10) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 11))
+                .foregroundStyle(ForelTheme.secondaryText.opacity(0.6))
+
             ZStack {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(ForelTheme.accent.opacity(folder.enabled ? 0.18 : 0.08))
@@ -125,5 +187,45 @@ struct SidebarView: View {
         if let path = FolderPicker.choose() {
             model.addFolder(path: path)
         }
+    }
+}
+
+private struct FolderInsertionDropDelegate: DropDelegate {
+    let insertionIndex: Int
+    let folders: [WatchedFolder]
+    @Binding var draggedFolderId: String?
+    @Binding var activeInsertionIndex: Int?
+    let move: ([String]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard draggedFolderId != nil else { return }
+        activeInsertionIndex = insertionIndex
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        activeInsertionIndex = insertionIndex
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            draggedFolderId = nil
+            activeInsertionIndex = nil
+        }
+
+        guard
+            let draggedFolderId,
+            let sourceIndex = folders.firstIndex(where: { $0.id == draggedFolderId })
+        else { return false }
+
+        var ids = folders.map(\.id)
+        ids.remove(at: sourceIndex)
+        let targetIndex = sourceIndex < insertionIndex ? insertionIndex - 1 : insertionIndex
+        let boundedTargetIndex = max(0, min(targetIndex, ids.count))
+        ids.insert(draggedFolderId, at: boundedTargetIndex)
+
+        guard ids != folders.map(\.id) else { return true }
+        move(ids)
+        return true
     }
 }

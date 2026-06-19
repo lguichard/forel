@@ -8,6 +8,10 @@ All notable changes to Forel are documented here. Format loosely follows
 ### Added
 - Added a Run Shortcut rule action that lists macOS Shortcuts and lets each action choose matched-file or no-input mode.
 - Added a Settings toggle to show or hide Forel's Dock icon while the app keeps running.
+- Added drag-and-drop reordering for watched folders in the sidebar.
+
+### Fixed
+- Fix hidden title window
 
 ## [0.1.0-beta.4] - 2026-06-18
 

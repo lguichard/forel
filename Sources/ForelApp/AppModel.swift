@@ -173,6 +173,11 @@ final class AppModel: ObservableObject {
         reloadFolders()
     }
 
+    func reorderFolders(_ folderIds: [String]) {
+        try? db.reorderFolders(folderIds)
+        reloadFolders()
+    }
+
     func saveRule(_ rule: Rule) {
         do {
             if rules.contains(where: { $0.id == rule.id }) {
