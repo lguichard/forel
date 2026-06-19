@@ -24,31 +24,6 @@ import Foundation
         #expect(history.isEmpty)
     }
 
-    @Test func conditionOrderDoesNotChangeAllOrAnyMatching() throws {
-        // `ruleMatches` evaluates cheap conditions before `contents` and
-        // short-circuits. Reordering must not change the boolean outcome, so a
-        // `contents` condition that disagrees with a cheap one decides `.all`
-        // and `.any` exactly as if it were evaluated in declaration order.
-        let dir = TempDir()
-        let file = dir.file("invoice.txt", contents: "paid")
-        let rules = [
-            // `.all`: cheap name passes but contents disagrees -> no match,
-            // regardless of which condition is listed first.
-            makeRule(name: "all contents-gated", conditionMatch: .all, conditions: [
-                makeCondition(.contents, .contains, "refunded"),
-                makeCondition(.name, .contains, "invoice"),
-            ]),
-            // `.any`: cheap name fails but contents matches -> match.
-            makeRule(name: "any contents-gated", conditionMatch: .any, conditions: [
-                makeCondition(.name, .contains, "receipt"),
-                makeCondition(.contents, .contains, "paid"),
-            ]),
-        ]
-
-        let (matched, _) = RuleEngine.evaluateFile(path: file, depth: 0, rules: rules, batchId: "batch")
-        #expect(matched == ["any contents-gated"])
-    }
-
     @Test func previewFileHidesAlreadyAppliedActions() throws {
         let dir = TempDir()
         let file = dir.file("photo.jpg", contents: "img")

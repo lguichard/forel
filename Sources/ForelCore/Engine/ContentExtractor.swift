@@ -287,7 +287,7 @@ public enum ContentExtractor {
 
     private static func extractAttributed(path: String, documentType: NSAttributedString.DocumentType, strategy: ContentStrategy) -> ContentExtraction {
         let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: documentType]
-        guard let attributed = attributedString(url: URL(fileURLWithPath: path), options: options) else {
+        guard let attributed = try? NSAttributedString(url: URL(fileURLWithPath: path), options: options, documentAttributes: nil) else {
             return ContentExtraction(text: nil, strategy: .none, message: "Could not read document.")
         }
         let text = attributed.string
@@ -295,22 +295,6 @@ public enum ContentExtractor {
             return ContentExtraction(text: nil, strategy: .none, message: "Document has no readable text.")
         }
         return ContentExtraction(text: text, strategy: strategy)
-    }
-
-    /// Builds an `NSAttributedString` from a document, always on the main thread.
-    /// The AppKit document importers for Word/RTF are not safe to call off the
-    /// main thread, and content extraction runs on a background queue (watcher)
-    /// or a detached task (Run Now / Dry Run) — so hop to the main thread for
-    /// this step. The `Thread.isMainThread` guard avoids deadlocking if a caller
-    /// is ever already on the main thread.
-    private static func attributedString(url: URL, options: [NSAttributedString.DocumentReadingOptionKey: Any]) -> NSAttributedString? {
-        func make() -> NSAttributedString? {
-            try? NSAttributedString(url: url, options: options, documentAttributes: nil)
-        }
-        if Thread.isMainThread {
-            return make()
-        }
-        return DispatchQueue.main.sync(execute: make)
     }
 
     // MARK: - Office Open XML (.xlsx / .pptx)

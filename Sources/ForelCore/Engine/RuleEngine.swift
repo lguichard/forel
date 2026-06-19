@@ -232,26 +232,8 @@ public enum RuleEngine {
         guard ruleInScope(rule, depth: depth) else { return false }
         if rule.conditions.isEmpty { return true }
 
-        // Evaluate cheap conditions first and short-circuit, so an expensive
-        // `contents` extraction (PDF text, OCR, zip parsing, Spotlight) only runs
-        // when it can still change the outcome — e.g. a failing name check in an
-        // `.all` rule skips the OCR entirely. Reordering is safe because `.all`
-        // and `.any` are order-independent. The Dry Run keeps the original order
-        // and evaluates every condition on purpose, to show each one's result.
-        let ordered = rule.conditions.sorted { evaluationCost($0.kind) < evaluationCost($1.kind) }
-        switch rule.conditionMatch {
-        case .all:
-            return ordered.allSatisfy { ConditionEvaluator.evaluate($0, path: path) }
-        case .any:
-            return ordered.contains { ConditionEvaluator.evaluate($0, path: path) }
-        }
-    }
-
-    /// Relative cost of evaluating a condition, used only to order evaluation so
-    /// the cheap checks can short-circuit before the expensive ones. `contents`
-    /// can read/parse the whole file (and run OCR), so it is always evaluated last.
-    private static func evaluationCost(_ kind: ConditionKind) -> Int {
-        kind == .contents ? 1 : 0
+        let results = rule.conditions.map { ConditionEvaluator.evaluate($0, path: path) }
+        return conditionResultsMatch(results, rule.conditionMatch)
     }
 
     private static func ruleInScope(_ rule: Rule, depth: Int) -> Bool {
