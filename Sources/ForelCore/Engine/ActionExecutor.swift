@@ -245,7 +245,10 @@ public enum ActionExecutor {
 
     private static func renameFile(_ action: Action, path: String) throws -> Applied {
         let pattern = try stringParam(action, ActionParam.pattern, "Rename")
-        let newName = try applyRenamePattern(pattern, path: path)
+        var newName = try applyRenamePattern(pattern, path: path)
+        if action.params[ActionParam.cleanFileName]?.boolValue == true {
+            newName = cleanFileName(newName)
+        }
         let dest = (path as NSString).deletingLastPathComponent + "/" + newName
         try FileManager.default.moveItem(atPath: path, toPath: dest)
         return Applied(newPath: dest, undo: .move(from: path, to: dest))
@@ -429,7 +432,10 @@ public enum ActionExecutor {
             )
         case .rename:
             let pattern = action.params[ActionParam.pattern]?.stringValue ?? ""
-            let newName = try applyRenamePattern(pattern, path: path)
+            var newName = try applyRenamePattern(pattern, path: path)
+            if action.params[ActionParam.cleanFileName]?.boolValue == true {
+                newName = cleanFileName(newName)
+            }
             let target = ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(newName)
             return ActionPlan(
                 kind: action.kind,
@@ -675,6 +681,45 @@ public enum ActionExecutor {
         }
         result = "\(result).\(ext)"
         return result
+    }
+
+    /// Converts a filename to kebab-case: strips diacritics and special
+    /// characters, lowercases, replaces spaces and underscores with hyphens,
+    /// splits camelCase boundaries, and collapses adjacent hyphens.
+    public static func cleanFileName(_ name: String) -> String {
+        let nsName = name as NSString
+        let ext = nsName.pathExtension
+        let stem = ext.isEmpty ? (name as NSString).deletingPathExtension : nsName.deletingPathExtension
+
+        // Strip diacritics: "café" → "cafe"
+        var cleaned = stem.applyingTransform(.stripDiacritics, reverse: false) ?? stem
+
+        cleaned = cleaned
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+
+        // Insert hyphen at camelCase boundaries: "myFile" → "my-File"
+        var withBoundaries = ""
+        for ch in cleaned {
+            if ch.isUppercase, let last = withBoundaries.last, last.isLowercase || last.isNumber {
+                withBoundaries.append("-")
+            }
+            withBoundaries.append(ch)
+        }
+        cleaned = withBoundaries
+
+        // Lowercase
+        cleaned = cleaned.lowercased()
+
+        // Remove remaining characters that aren't alphanumeric or hyphens
+        cleaned = String(cleaned.filter { $0.isLetter || $0.isNumber || $0 == "-" })
+
+        // Collapse and strip hyphens
+        while cleaned.contains("--") { cleaned = cleaned.replacingOccurrences(of: "--", with: "-") }
+        cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+
+        if cleaned.isEmpty { return name }
+        return ext.isEmpty ? cleaned : "\(cleaned).\(ext)"
     }
 
     /// Returns a destination path that does not yet exist, appending ` (N)` to

@@ -673,7 +673,7 @@ private struct ActionRow: View {
         case .moveToFolder, .copyToFolder:
             FolderField(placeholder: "Destination folder", path: paramBinding(ActionParam.destination))
         case .rename:
-            RenamePatternEditor(pattern: paramBinding(ActionParam.pattern))
+            RenamePatternEditor(pattern: paramBinding(ActionParam.pattern), cleanFileName: action.params[ActionParam.cleanFileName]?.boolValue == true)
         case .addTag, .removeTag:
             TagTokensEditor(tags: tagsBinding, placeholder: action.kind == .addTag ? "Add tag" : "Tag")
         case .setColorLabel:
@@ -751,6 +751,8 @@ private struct ActionOptionsView: View {
                 shortcutOptions
             case .moveToFolder, .copyToFolder:
                 conflictResolutionOptions
+            case .rename:
+                renameOptions
             default:
                 Text("No options for this action.")
                     .font(.system(size: 12))
@@ -787,6 +789,30 @@ private struct ActionOptionsView: View {
             )
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var renameOptions: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: cleanNameBinding) {
+                Text("Clean file name")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ForelTheme.primaryText)
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
+    }
+
+    private var cleanNameBinding: Binding<Bool> {
+        Binding(
+            get: { action.params[ActionParam.cleanFileName]?.boolValue == true },
+            set: { newValue in
+                var dict: [String: JSONValue] = [:]
+                if case .object(let existing) = action.params { dict = existing }
+                dict[ActionParam.cleanFileName] = .bool(newValue)
+                action.params = .object(dict)
+            }
+        )
     }
 
     private func paramBinding(_ key: String, defaultValue: String = "") -> Binding<String> {
@@ -937,6 +963,7 @@ private struct TagTokensEditor: View {
 
 private struct RenamePatternEditor: View {
     @Binding var pattern: String
+    let cleanFileName: Bool
 
     private let tokens: [(placeholder: String, label: String)] = [
         ("{name}", "name"),
@@ -976,16 +1003,17 @@ private struct RenamePatternEditor: View {
             .replacingOccurrences(of: "{name}", with: "file")
             .replacingOccurrences(of: "{extension}", with: "txt")
             .replacingOccurrences(of: "{current_date}", with: dateString())
-        if previewName == "." || previewName == ".." {
-            return "⚠️ Pattern resolves to '\(previewName)' which is not a valid filename"
+        let displayName = cleanFileName ? ActionExecutor.cleanFileName(previewName) : previewName
+        if displayName == "." || displayName == ".." {
+            return "⚠️ Pattern resolves to '\(displayName)' which is not a valid filename"
         }
-        if previewName.utf8.count > 255 {
+        if displayName.utf8.count > 255 {
             return "⚠️ Pattern resolves to a filename longer than 255 characters"
         }
-        if let last = previewName.last, last == "." || last == " " {
-            return "⚠️ Pattern resolves to '\(previewName)' — trailing '.' or space is not supported"
+        if let last = displayName.last, last == "." || last == " " {
+            return "⚠️ Pattern resolves to '\(displayName)' — trailing '.' or space is not supported"
         }
-        return "Preview: \(previewName)"
+        return "Preview: \(displayName)"
     }
 
     private func dateString() -> String {
