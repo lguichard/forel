@@ -269,6 +269,8 @@ public enum ActionExecutor {
         return Applied(newPath: path, undo: .color(path: path, previous: previous))
     }
 
+    private static let scriptDefaultTimeout: TimeInterval = 60
+
     private static func runScript(_ action: Action, path: String) throws -> Applied {
         let script = try stringParam(action, ActionParam.script, "RunScript")
         let process = Process()
@@ -278,7 +280,20 @@ public enum ActionExecutor {
         env["FOREL_FILE"] = path
         process.environment = env
         try process.run()
-        process.waitUntilExit()
+
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            process.waitUntilExit()
+            group.leave()
+        }
+
+        if group.wait(timeout: DispatchTime.now() + scriptDefaultTimeout) == .timedOut {
+            process.terminate()
+            _ = group.wait(timeout: DispatchTime.now() + 2)
+            throw ActionError("script timed out after \(Int(scriptDefaultTimeout))s")
+        }
+
         guard process.terminationStatus == 0 else {
             throw ActionError("script exited with status \(process.terminationStatus)")
         }
