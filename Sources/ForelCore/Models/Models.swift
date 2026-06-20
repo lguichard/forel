@@ -174,6 +174,21 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
     public var status: HistoryStatus
     public var message: String?
     public var createdAt: String
+    /// Identity/fingerprint of the source file just before this action ran,
+    /// and of the result file just after — `nil` for entries written before
+    /// this snapshot existed. Lets `UndoPlanner` tell a safe rollback from a
+    /// dangerous one.
+    public var sourceVolumeId: Int64?
+    public var sourceFileId: Int64?
+    public var sourceFingerprint: String?
+    public var resultVolumeId: Int64?
+    public var resultFileId: Int64?
+    public var resultFingerprint: String?
+    /// The `ExecutionPlan` this action came from, when known.
+    public var planId: String?
+    /// Set on the new entry an undo creates, pointing back at the `batchId`
+    /// of the action it undid.
+    public var undoBatchId: String?
 
     public init(
         id: String = UUID().uuidString,
@@ -187,7 +202,15 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
         reversible: Bool,
         status: HistoryStatus = .applied,
         message: String? = nil,
-        createdAt: String = ISO8601DateFormatter().string(from: Date())
+        createdAt: String = ISO8601DateFormatter().string(from: Date()),
+        sourceVolumeId: Int64? = nil,
+        sourceFileId: Int64? = nil,
+        sourceFingerprint: String? = nil,
+        resultVolumeId: Int64? = nil,
+        resultFileId: Int64? = nil,
+        resultFingerprint: String? = nil,
+        planId: String? = nil,
+        undoBatchId: String? = nil
     ) {
         self.id = id
         self.batchId = batchId
@@ -201,5 +224,13 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
         self.status = status
         self.message = message
         self.createdAt = createdAt
+        self.sourceVolumeId = sourceVolumeId
+        self.sourceFileId = sourceFileId
+        self.sourceFingerprint = sourceFingerprint
+        self.resultVolumeId = resultVolumeId
+        self.resultFileId = resultFileId
+        self.resultFingerprint = resultFingerprint
+        self.planId = planId
+        self.undoBatchId = undoBatchId
     }
 }

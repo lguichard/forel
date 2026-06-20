@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 
 /// Wires `FileWatcher` events to the database and rule engine: for every
@@ -12,17 +13,41 @@ public final class WatcherCoordinator: @unchecked Sendable {
     public init(db: Database) {
         self.db = db
         var watcherRef: FileWatcher!
-        watcherRef = FileWatcher(onEvent: { _ in })
+        watcherRef = FileWatcher(onEvent: { _, _ in })
         self.watcher = watcherRef
-        self.watcher.replaceHandler { [weak self] path in
-            self?.handle(path: path)
+        self.watcher.replaceHandler { [weak self] path, flags in
+            self?.handle(path: path, flags: flags)
         }
     }
 
     public func add(_ path: String) { watcher.add(path) }
     public func remove(_ path: String) { watcher.remove(path) }
 
-    private func handle(path: String) {
+    /// Catches up on files that changed while Forel wasn't running (missed
+    /// FSEvents) by planning and executing the folder's rules against every
+    /// file currently in scope — the same pipeline a manual Run Now uses.
+    /// Safe to call repeatedly: rules already satisfied simply plan to
+    /// `wouldSkip`.
+    public func runStartupScan(folder: WatchedFolder) {
+        let rules = db.withLock { db in (try? db.listRules(folderId: folder.id)) ?? [] }
+        guard !rules.isEmpty else { return }
+
+        let maxDepth = RuleEngine.maxRuleDepth(rules)
+        let entries = RuleEngine.walkEntries(root: folder.path, maxDepth: maxDepth)
+        let scanBatchId = UUID().uuidString
+        let scanEvents = entries.map { entry in
+            FilesystemEvent(batchId: scanBatchId, source: .scan, kind: .discovered, path: entry.path)
+        }
+        db.withLock { db in try? db.insertFilesystemEvents(scanEvents) }
+
+        let plan = RulePlanner.plan(entries: entries, rules: rules, root: folder.path, folderId: folder.id, status: .ready)
+        persist(PlanExecutor.execute(plan))
+    }
+
+    func handle(path: String, flags: UInt32) {
+        journalFSEvent(path: path, flags: flags)
+        guard !isForelEcho(path: path) else { return }
+
         guard let (folder, rules) = db.withLock({ db -> (WatchedFolder, [Rule])? in
             guard let folder = try? db.folderForPath(path) else { return nil }
             let rules = (try? db.listRules(folderId: folder.id)) ?? []
@@ -30,15 +55,62 @@ public final class WatcherCoordinator: @unchecked Sendable {
         }) else { return }
 
         guard let depth = RuleEngine.pathDepth(root: folder.path, path: path) else { return }
-        let batchId = UUID().uuidString
-        let (matched, history) = RuleEngine.evaluateFile(path: path, depth: depth, rules: rules, batchId: batchId, root: folder.path)
-        for ruleName in matched {
-            onRuleMatched?(ruleName, path)
+        guard let plannedFile = RulePlanner.planFile(path: path, depth: depth, rules: rules, root: folder.path) else { return }
+
+        for plannedRule in plannedFile.rules {
+            onRuleMatched?(plannedRule.ruleName, path)
         }
-        if !history.isEmpty {
-            db.withLock { db in
-                try? db.insertHistoryEntries(history)
-            }
+
+        let plan = ExecutionPlan(folderId: folder.id, status: .ready, files: [plannedFile])
+        persist(PlanExecutor.execute(plan))
+    }
+
+    private func persist(_ result: PlanExecutionResult) {
+        guard !result.history.isEmpty else { return }
+        db.withLock { db in
+            try? db.insertHistoryEntries(result.history)
+            try? db.insertFilesystemEvents(result.events)
+            for state in result.fileStateUpserts { try? db.upsertFileState(state) }
+            for path in result.fileStateDeletes { try? db.deleteFileState(path) }
         }
+    }
+
+    /// Forel's own actions touch files the watcher then sees again via
+    /// FSEvents. If the file's current identity/fingerprint already matches
+    /// the `file_state` Forel itself just recorded for that path, this event
+    /// is an echo of Forel's own change, not a new observation — the rules
+    /// must not run again for it.
+    func isForelEcho(path: String) -> Bool {
+        guard let state = db.withLock({ db in try? db.getFileState(path) }) else { return false }
+        guard let currentFingerprint = FileFingerprint.current(path), state.contentFingerprint == currentFingerprint else {
+            return false
+        }
+        guard let volumeId = state.volumeId, let fileId = state.fileId else { return true }
+        guard let identity = FileFingerprint.identity(path) else { return false }
+        return identity.volumeId == volumeId && identity.fileId == fileId
+    }
+
+    /// Records the raw FSEvents flag for `path` so the journal distinguishes
+    /// observed facts from Forel's own planning/execution later.
+    private func journalFSEvent(path: String, flags: UInt32) {
+        let identity = FileFingerprint.identity(path)
+        let event = FilesystemEvent(
+            source: .fsevents,
+            kind: WatcherCoordinator.kind(forFlags: flags),
+            path: path,
+            volumeId: identity?.volumeId,
+            fileId: identity?.fileId,
+            contentFingerprint: FileFingerprint.current(path),
+            rawFlags: Int64(flags)
+        )
+        db.withLock { db in
+            try? db.insertFilesystemEvent(event)
+        }
+    }
+
+    static func kind(forFlags flags: UInt32) -> FilesystemEventKind {
+        if flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0 { return .renamed }
+        if flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0 { return .created }
+        return .unknown
     }
 }

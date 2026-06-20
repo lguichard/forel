@@ -24,7 +24,7 @@ public struct RulePreview: Sendable {
     }
 }
 
-public struct ConditionPreview: Sendable {
+public struct ConditionPreview: Equatable, Sendable {
     public let kind: ConditionKind
     public let operator_: Operator
     public let value: String

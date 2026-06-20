@@ -8,7 +8,7 @@ import Foundation
 /// with the updated set — same externally-visible behaviour as the old
 /// `WatcherCmd::Add`/`Remove` channel.
 public final class FileWatcher: @unchecked Sendable {
-    public typealias EventHandler = @Sendable (_ path: String) -> Void
+    public typealias EventHandler = @Sendable (_ path: String, _ flags: UInt32) -> Void
 
     private var onEvent: EventHandler
     private let lock = NSLock()
@@ -101,7 +101,7 @@ public final class FileWatcher: @unchecked Sendable {
                 || flag & UInt32(kFSEventStreamEventFlagItemRenamed) != 0
             guard isCreateOrRename else { continue }
             if (path as NSString).lastPathComponent == ".DS_Store" { continue }
-            handler(path)
+            handler(path, flag)
         }
     }
 }

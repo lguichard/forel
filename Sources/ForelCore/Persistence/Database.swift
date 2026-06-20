@@ -6,7 +6,7 @@ import Foundation
 /// schema exactly so the existing alpha database at
 /// `~/Library/Application Support/com.forel.app/forel.db` keeps working.
 public final class Database: @unchecked Sendable {
-    public static let currentSchemaVersion: Int64 = 5
+    public static let currentSchemaVersion: Int64 = 8
 
     private let handle: OpaquePointer
     private let lock = NSLock()
@@ -139,6 +139,34 @@ public final class Database: @unchecked Sendable {
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS filesystem_events (
+                id                  TEXT PRIMARY KEY,
+                batch_id            TEXT,
+                source              TEXT NOT NULL,
+                kind                TEXT NOT NULL,
+                path                TEXT NOT NULL,
+                previous_path       TEXT,
+                volume_id           INTEGER,
+                file_id             INTEGER,
+                content_fingerprint TEXT,
+                raw_flags           INTEGER,
+                is_forel_originated INTEGER NOT NULL DEFAULT 0,
+                created_at          TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_created ON filesystem_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_path ON filesystem_events(path);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_volume_file ON filesystem_events(volume_id, file_id);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_batch ON filesystem_events(batch_id);
+
+            CREATE TABLE IF NOT EXISTS file_state (
+                path                TEXT PRIMARY KEY,
+                volume_id           INTEGER,
+                file_id             INTEGER,
+                content_fingerprint TEXT,
+                updated_at          TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_file_state_volume_file ON file_state(volume_id, file_id);
             """
         )
         try runMigrations()
@@ -154,6 +182,9 @@ public final class Database: @unchecked Sendable {
         if version < 3 { try runMigration(3) { try self.migrateV3AddAppSettings() } }
         if version < 4 { try runMigration(4) { try self.migrateV4AddHistoryMessage() } }
         if version < 5 { try runMigration(5) { try self.migrateV5AddFolderPriority() } }
+        if version < 6 { try runMigration(6) { try self.migrateV6AddFilesystemEvents() } }
+        if version < 7 { try runMigration(7) { try self.migrateV7AddFileState() } }
+        if version < 8 { try runMigration(8) { try self.migrateV8AddHistorySnapshots() } }
     }
 
     private func runMigration(_ version: Int64, _ apply: () throws -> Void) throws {
@@ -217,6 +248,63 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    private func migrateV6AddFilesystemEvents() throws {
+        try exec(
+            """
+            CREATE TABLE IF NOT EXISTS filesystem_events (
+                id                  TEXT PRIMARY KEY,
+                batch_id            TEXT,
+                source              TEXT NOT NULL,
+                kind                TEXT NOT NULL,
+                path                TEXT NOT NULL,
+                previous_path       TEXT,
+                volume_id           INTEGER,
+                file_id             INTEGER,
+                content_fingerprint TEXT,
+                raw_flags           INTEGER,
+                is_forel_originated INTEGER NOT NULL DEFAULT 0,
+                created_at          TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_created ON filesystem_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_path ON filesystem_events(path);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_volume_file ON filesystem_events(volume_id, file_id);
+            CREATE INDEX IF NOT EXISTS idx_filesystem_events_batch ON filesystem_events(batch_id);
+            """
+        )
+    }
+
+    private func migrateV7AddFileState() throws {
+        try exec(
+            """
+            CREATE TABLE IF NOT EXISTS file_state (
+                path                TEXT PRIMARY KEY,
+                volume_id           INTEGER,
+                file_id             INTEGER,
+                content_fingerprint TEXT,
+                updated_at          TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_file_state_volume_file ON file_state(volume_id, file_id);
+            """
+        )
+    }
+
+    private func migrateV8AddHistorySnapshots() throws {
+        for column in [
+            "source_volume_id INTEGER",
+            "source_file_id INTEGER",
+            "source_fingerprint TEXT",
+            "result_volume_id INTEGER",
+            "result_file_id INTEGER",
+            "result_fingerprint TEXT",
+            "plan_id TEXT",
+            "undo_batch_id TEXT",
+        ] {
+            let name = String(column.split(separator: " ")[0])
+            if try tableHasColumn("action_history", name) { continue }
+            try exec("ALTER TABLE action_history ADD COLUMN \(column);")
+        }
+    }
+
     // MARK: - App settings
 
     public func getSetting(_ key: String) throws -> String? {
@@ -252,8 +340,10 @@ public final class Database: @unchecked Sendable {
 
     // MARK: - Action history
 
-    private static let historyColumns =
-        "id, batch_id, rule_id, rule_name, action_kind, original_path, result_path, undo, reversible, status, message, created_at"
+    private static let historyColumns = """
+        id, batch_id, rule_id, rule_name, action_kind, original_path, result_path, undo, reversible, status, message, created_at, \
+        source_volume_id, source_file_id, source_fingerprint, result_volume_id, result_file_id, result_fingerprint, plan_id, undo_batch_id
+        """
 
     private func rowToHistoryEntry(_ stmt: SQLiteStatement) -> HistoryEntry {
         HistoryEntry(
@@ -268,7 +358,15 @@ public final class Database: @unchecked Sendable {
             reversible: stmt.columnBool(8),
             status: HistoryStatus(rawValue: stmt.columnText(9)) ?? .applied,
             message: stmt.columnTextOrNil(10),
-            createdAt: stmt.columnText(11)
+            createdAt: stmt.columnText(11),
+            sourceVolumeId: stmt.columnInt64OrNil(12),
+            sourceFileId: stmt.columnInt64OrNil(13),
+            sourceFingerprint: stmt.columnTextOrNil(14),
+            resultVolumeId: stmt.columnInt64OrNil(15),
+            resultFileId: stmt.columnInt64OrNil(16),
+            resultFingerprint: stmt.columnTextOrNil(17),
+            planId: stmt.columnTextOrNil(18),
+            undoBatchId: stmt.columnTextOrNil(19)
         )
     }
 
@@ -277,8 +375,9 @@ public final class Database: @unchecked Sendable {
             let stmt = try statement(
                 """
                 INSERT INTO action_history
-                (id, batch_id, rule_id, rule_name, action_kind, original_path, result_path, undo, reversible, status, message, created_at)
-                VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                (id, batch_id, rule_id, rule_name, action_kind, original_path, result_path, undo, reversible, status, message, created_at,
+                 source_volume_id, source_file_id, source_fingerprint, result_volume_id, result_file_id, result_fingerprint, plan_id, undo_batch_id)
+                VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
                 """
             )
             stmt.bind(1, entry.id)
@@ -293,6 +392,14 @@ public final class Database: @unchecked Sendable {
             stmt.bind(10, entry.status.rawValue)
             stmt.bind(11, entry.message)
             stmt.bind(12, entry.createdAt)
+            stmt.bind(13, entry.sourceVolumeId)
+            stmt.bind(14, entry.sourceFileId)
+            stmt.bind(15, entry.sourceFingerprint)
+            stmt.bind(16, entry.resultVolumeId)
+            stmt.bind(17, entry.resultFileId)
+            stmt.bind(18, entry.resultFingerprint)
+            stmt.bind(19, entry.planId)
+            stmt.bind(20, entry.undoBatchId)
             try stmt.runToCompletion()
         }
     }
@@ -599,5 +706,121 @@ public final class Database: @unchecked Sendable {
         stmt.bind(4, action.params.jsonString)
         stmt.bind(5, action.position)
         try stmt.runToCompletion()
+    }
+
+    // MARK: - Filesystem events
+
+    private static let filesystemEventColumns =
+        "id, batch_id, source, kind, path, previous_path, volume_id, file_id, content_fingerprint, raw_flags, is_forel_originated, created_at"
+
+    private func rowToFilesystemEvent(_ stmt: SQLiteStatement) -> FilesystemEvent {
+        FilesystemEvent(
+            id: stmt.columnText(0),
+            batchId: stmt.columnTextOrNil(1),
+            source: FilesystemEventSource(dbValue: stmt.columnText(2)),
+            kind: FilesystemEventKind(dbValue: stmt.columnText(3)),
+            path: stmt.columnText(4),
+            previousPath: stmt.columnTextOrNil(5),
+            volumeId: stmt.columnInt64OrNil(6),
+            fileId: stmt.columnInt64OrNil(7),
+            contentFingerprint: stmt.columnTextOrNil(8),
+            rawFlags: stmt.columnInt64OrNil(9),
+            isForelOriginated: stmt.columnBool(10),
+            createdAt: stmt.columnText(11)
+        )
+    }
+
+    public func insertFilesystemEvent(_ event: FilesystemEvent) throws {
+        let stmt = try statement(
+            """
+            INSERT INTO filesystem_events
+            (id, batch_id, source, kind, path, previous_path, volume_id, file_id, content_fingerprint, raw_flags, is_forel_originated, created_at)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+            """
+        )
+        stmt.bind(1, event.id)
+        stmt.bind(2, event.batchId)
+        stmt.bind(3, event.source.rawValue)
+        stmt.bind(4, event.kind.rawValue)
+        stmt.bind(5, event.path)
+        stmt.bind(6, event.previousPath)
+        stmt.bind(7, event.volumeId)
+        stmt.bind(8, event.fileId)
+        stmt.bind(9, event.contentFingerprint)
+        stmt.bind(10, event.rawFlags)
+        stmt.bind(11, bool: event.isForelOriginated)
+        stmt.bind(12, event.createdAt)
+        try stmt.runToCompletion()
+    }
+
+    public func insertFilesystemEvents(_ events: [FilesystemEvent]) throws {
+        try transaction {
+            for event in events { try insertFilesystemEvent(event) }
+        }
+    }
+
+    public func listRecentFilesystemEvents(limit: Int = 100) throws -> [FilesystemEvent] {
+        let stmt = try statement("SELECT \(Self.filesystemEventColumns) FROM filesystem_events ORDER BY created_at DESC LIMIT ?1")
+        stmt.bind(1, Int64(limit))
+        var events: [FilesystemEvent] = []
+        while try stmt.step() { events.append(rowToFilesystemEvent(stmt)) }
+        return events
+    }
+
+    public func listFilesystemEvents(batchId: String) throws -> [FilesystemEvent] {
+        let stmt = try statement("SELECT \(Self.filesystemEventColumns) FROM filesystem_events WHERE batch_id=?1 ORDER BY created_at")
+        stmt.bind(1, batchId)
+        var events: [FilesystemEvent] = []
+        while try stmt.step() { events.append(rowToFilesystemEvent(stmt)) }
+        return events
+    }
+
+    public func listFilesystemEvents(path: String) throws -> [FilesystemEvent] {
+        let stmt = try statement("SELECT \(Self.filesystemEventColumns) FROM filesystem_events WHERE path=?1 ORDER BY created_at")
+        stmt.bind(1, path)
+        var events: [FilesystemEvent] = []
+        while try stmt.step() { events.append(rowToFilesystemEvent(stmt)) }
+        return events
+    }
+
+    // MARK: - File state
+
+    public func upsertFileState(_ state: FileState) throws {
+        let stmt = try statement(
+            """
+            INSERT INTO file_state (path, volume_id, file_id, content_fingerprint, updated_at)
+            VALUES (?1,?2,?3,?4,?5)
+            ON CONFLICT(path) DO UPDATE SET
+                volume_id = excluded.volume_id,
+                file_id = excluded.file_id,
+                content_fingerprint = excluded.content_fingerprint,
+                updated_at = excluded.updated_at
+            """
+        )
+        stmt.bind(1, state.path)
+        stmt.bind(2, state.volumeId)
+        stmt.bind(3, state.fileId)
+        stmt.bind(4, state.contentFingerprint)
+        stmt.bind(5, state.updatedAt)
+        try stmt.runToCompletion()
+    }
+
+    public func deleteFileState(_ path: String) throws {
+        let stmt = try statement("DELETE FROM file_state WHERE path=?1")
+        stmt.bind(1, path)
+        try stmt.runToCompletion()
+    }
+
+    public func getFileState(_ path: String) throws -> FileState? {
+        let stmt = try statement("SELECT path, volume_id, file_id, content_fingerprint, updated_at FROM file_state WHERE path=?1")
+        stmt.bind(1, path)
+        guard try stmt.step() else { return nil }
+        return FileState(
+            path: stmt.columnText(0),
+            volumeId: stmt.columnInt64OrNil(1),
+            fileId: stmt.columnInt64OrNil(2),
+            contentFingerprint: stmt.columnTextOrNil(3),
+            updatedAt: stmt.columnText(4)
+        )
     }
 }

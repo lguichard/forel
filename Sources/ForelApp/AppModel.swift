@@ -32,6 +32,12 @@ final class AppModel: ObservableObject {
     private var runNowMessageId: UUID?
     @Published private(set) var isPreviewing = false
     @Published var previewResult: PreviewResult?
+    /// The most recently computed plan backing `previewResult` — the same
+    /// `ExecutionPlan` Run Now/watcher will consume once they're wired to it.
+    @Published private(set) var lastPlan: ExecutionPlan?
+    /// `PlanValidator`'s read on `lastPlan` — the same validation Run Now
+    /// and the watcher apply before executing.
+    @Published private(set) var lastPlanValidation: PlanValidationResult?
 
     let db: Database
     private let coordinator: WatcherCoordinator
@@ -142,8 +148,18 @@ final class AppModel: ObservableObject {
 
     private func startWatchingEnabledFolders() {
         guard !paused else { return }
+        let coordinator = self.coordinator
         for folder in (try? db.listFolders()) ?? [] where folder.enabled {
             coordinator.add(folder.path)
+            // Catches up on anything that changed while Forel wasn't
+            // running (missed FSEvents), off the main thread so launch
+            // isn't blocked scanning large folders.
+            Task {
+                await Task.detached(priority: .utility) {
+                    coordinator.runStartupScan(folder: folder)
+                }.value
+                reloadHistory()
+            }
         }
     }
 
@@ -233,26 +249,49 @@ final class AppModel: ObservableObject {
         isRunningNow = true
         Task {
             defer { isRunningNow = false }
-            let allHistory = await Task.detached(priority: .userInitiated) {
+            let db = self.db
+            let outcome: (plan: ExecutionPlan, validation: PlanValidationResult, result: PlanExecutionResult) = await Task.detached(priority: .userInitiated) {
                 let maxDepth = RuleEngine.maxRuleDepth(folderRules)
                 let entries = RuleEngine.walkEntries(root: folder.path, maxDepth: maxDepth)
-                let batchId = UUID().uuidString
-                var allHistory: [HistoryEntry] = []
-                for entry in entries {
-                    let (_, history) = RuleEngine.evaluateFile(path: entry.path, depth: entry.depth, rules: folderRules, batchId: batchId, root: folder.path)
-                    allHistory.append(contentsOf: history)
+                let scanBatchId = UUID().uuidString
+                let scanEvents = entries.map { entry in
+                    FilesystemEvent(batchId: scanBatchId, source: .scan, kind: .discovered, path: entry.path)
                 }
-                return allHistory
+                try? db.insertFilesystemEvents(scanEvents)
+
+                // Run Now consumes the same plan Dry Run would have shown for
+                // these exact files/rules — it never matches/plans actions
+                // on its own.
+                let plan = RulePlanner.plan(entries: entries, rules: folderRules, root: folder.path, folderId: folder.id, status: .ready)
+                // Same validator Dry Run shows conflicts/warnings from, run
+                // here too so Run Now never executes a batch it disagrees with.
+                return (plan: plan, validation: PlanValidator.validate(plan), result: PlanExecutor.execute(plan, batchId: UUID().uuidString))
             }.value
-            if !allHistory.isEmpty {
-                try? db.insertHistoryEntries(allHistory)
+            lastPlan = outcome.plan
+            lastPlanValidation = outcome.validation
+            let result = outcome.result
+
+            if !result.history.isEmpty {
+                try? db.insertHistoryEntries(result.history)
             }
+            if !result.events.isEmpty {
+                try? db.insertFilesystemEvents(result.events)
+            }
+            for state in result.fileStateUpserts { try? db.upsertFileState(state) }
+            for path in result.fileStateDeletes { try? db.deleteFileState(path) }
+
             reloadHistory()
-            showRunNowMessage(
-                allHistory.isEmpty
-                    ? "Run complete — no matching files"
-                    : "Run complete — \(allHistory.count) action\(allHistory.count == 1 ? "" : "s") applied"
-            )
+            let appliedCount = result.history.filter { $0.status == .applied }.count
+            let otherCount = result.history.count - appliedCount
+            let message: String
+            if result.history.isEmpty {
+                message = "Run complete — no matching files"
+            } else if otherCount == 0 {
+                message = "Run complete — \(appliedCount) action\(appliedCount == 1 ? "" : "s") applied"
+            } else {
+                message = "Run complete — \(appliedCount) applied, \(otherCount) skipped or blocked"
+            }
+            showRunNowMessage(message)
         }
     }
 
@@ -275,55 +314,71 @@ final class AppModel: ObservableObject {
     func preview() {
         guard !isPreviewing else { return }
         guard let folder = folders.first(where: { $0.id == selectedFolderId }) else {
+            lastPlan = nil
+            lastPlanValidation = nil
             previewResult = PreviewResult(filesScanned: 0, matches: [])
             return
         }
         let folderRules = rules.filter(\.enabled)
         guard !folderRules.isEmpty else {
+            lastPlan = nil
+            lastPlanValidation = nil
             previewResult = PreviewResult(filesScanned: 0, matches: [])
             return
         }
         isPreviewing = true
         Task {
             defer { isPreviewing = false }
-            previewResult = await Task.detached(priority: .userInitiated) {
+            let outcome = await Task.detached(priority: .userInitiated) {
                 let maxDepth = RuleEngine.maxRuleDepth(folderRules)
                 let entries = RuleEngine.walkEntries(root: folder.path, maxDepth: maxDepth)
-                let matches = entries.compactMap { entry in
-                    RuleEngine.previewFile(path: entry.path, depth: entry.depth, rules: folderRules)
-                }
-                return PreviewResult(filesScanned: entries.count, matches: matches)
+                let plan = RulePlanner.plan(entries: entries, rules: folderRules, root: folder.path, folderId: folder.id, status: .previewed)
+                return (plan: plan, validation: PlanValidator.validate(plan), filesScanned: entries.count)
             }.value
+            lastPlan = outcome.plan
+            lastPlanValidation = outcome.validation
+            previewResult = outcome.plan.asPreviewResult(filesScanned: outcome.filesScanned)
         }
     }
 
+    /// Reverses `entry` only if `UndoPlanner` finds it safe — never a silent
+    /// best-effort rollback on a file that no longer matches what Forel
+    /// originally changed.
     func undo(_ entry: HistoryEntry) {
         guard entry.status == .applied else { return }
-        do {
-            try ActionExecutor.revert(Undo.fromJSON(entry.undo))
-            try db.markHistoryUndone(entry.id)
+        let recentEvents = (try? db.listFilesystemEvents(path: entry.resultPath)) ?? []
+        let result = UndoPlanner.apply(entry, recentEvents: recentEvents)
+        switch result.outcome {
+        case .applied:
+            try? db.insertHistoryEntries(result.history)
+            try? db.insertFilesystemEvents(result.events)
+            try? db.markHistoryUndone(entry.id)
             reloadHistory()
-        } catch {
-            showError(error)
+        case .blocked(let reason), .needsConfirmation(let reason):
+            showNotice(title: "Can't undo this action", message: reason)
         }
     }
 
     /// Reverts every still-applied, reversible entry in a batch. Entries are
     /// undone in reverse application order so chained actions on the same file
-    /// (e.g. tag then rename) revert correctly.
+    /// (e.g. tag then rename) revert correctly. Each entry is still checked
+    /// individually by `UndoPlanner` — one unsafe entry doesn't block the rest.
     func undoBatch(_ batchId: String) {
         let entries = (try? db.listHistoryBatch(batchId)) ?? []
-        let reversible = entries
-            .filter { $0.status == .applied && $0.reversible }
-            .reversed()
+        let reversible = entries.filter { $0.status == .applied && $0.reversible }
+        let recentEvents = reversible.flatMap { (try? db.listFilesystemEvents(path: $0.resultPath)) ?? [] }
+        let results = UndoPlanner.applyBatch(reversible, recentEvents: recentEvents)
 
         var failures: [String] = []
-        for entry in reversible {
-            do {
-                try ActionExecutor.revert(Undo.fromJSON(entry.undo))
-                try db.markHistoryUndone(entry.id)
-            } catch {
-                failures.append("\((entry.originalPath as NSString).lastPathComponent): \(error)")
+        for result in results {
+            guard let entry = reversible.first(where: { $0.id == result.entryId }) else { continue }
+            switch result.outcome {
+            case .applied:
+                try? db.insertHistoryEntries(result.history)
+                try? db.insertFilesystemEvents(result.events)
+                try? db.markHistoryUndone(entry.id)
+            case .blocked(let reason), .needsConfirmation(let reason):
+                failures.append("\((entry.originalPath as NSString).lastPathComponent): \(reason)")
             }
         }
 
