@@ -28,18 +28,17 @@ import Foundation
         #expect(result.conflicts.contains { $0.message.contains("Multiple files would be written") })
     }
 
-    /// `moveToFolder` always resolves a same-name destination itself
-    /// (rename or replace), so it never reaches the validator's
-    /// `destinationExists` conflict path. `copyToFolder` has no such
+    /// `moveToFolder`/`copyToFolder` always resolve a same-name destination
+    /// themselves (rename/replace/skip), so they never reach the
+    /// validator's `destinationExists` conflict path. `rename` has no such
     /// resolution param and still relies on it.
     @Test func existingDestinationRespectsConflictPolicy() throws {
         let dir = TempDir()
-        let destination = dir.dir("Archive")
-        try "x".write(toFile: (destination as NSString).appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "x".write(toFile: (dir.path as NSString).appendingPathComponent("existing.txt"), atomically: true, encoding: .utf8)
         _ = dir.file("a.txt")
 
-        var rule = makeRule(name: "archive", conditions: [makeCondition(.extension_, .is, "txt")])
-        rule.actions = [makeAction(.copyToFolder, .object(["destination": .string(destination)]), position: 0)]
+        var rule = makeRule(name: "rename to existing", conditions: [makeCondition(.extension_, .is, "txt")])
+        rule.actions = [makeAction(.rename, .object(["pattern": .string("existing.txt")]), position: 0)]
 
         let entries = RuleEngine.walkEntries(root: dir.path, maxDepth: nil)
         let plan = RulePlanner.plan(entries: entries, rules: [rule], root: dir.path)

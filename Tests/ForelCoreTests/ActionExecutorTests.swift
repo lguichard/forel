@@ -154,6 +154,62 @@ import Foundation
         #expect(applied.newPath == (destination as NSString).appendingPathComponent("note.txt"))
     }
 
+    @Test func copyToFolderRenamesOnConflictByDefault() throws {
+        let dir = TempDir()
+        let destination = dir.dir("Archive")
+        let existing = (destination as NSString).appendingPathComponent("note.txt")
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+        let file = dir.file("note.txt", contents: "new")
+        let copyAction = makeAction(.copyToFolder, .object(["destination": .string(destination)]))
+
+        let applied = try ActionExecutor.execute(copyAction, path: file)
+
+        let numbered = (destination as NSString).appendingPathComponent("note (1).txt")
+        // The original stays put; only the copy is created.
+        #expect(applied.newPath == file)
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(try String(contentsOfFile: existing, encoding: .utf8) == "old")
+        #expect(try String(contentsOfFile: numbered, encoding: .utf8) == "new")
+    }
+
+    @Test func copyToFolderReplacesExistingFileWhenConfigured() throws {
+        let dir = TempDir()
+        let destination = dir.dir("Archive")
+        let existing = (destination as NSString).appendingPathComponent("note.txt")
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+        let file = dir.file("note.txt", contents: "new")
+        let copyAction = makeAction(.copyToFolder, .object([
+            "destination": .string(destination),
+            "on_conflict": .string("replace"),
+        ]))
+
+        let applied = try ActionExecutor.execute(copyAction, path: file)
+
+        #expect(applied.newPath == file)
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(try String(contentsOfFile: existing, encoding: .utf8) == "new")
+    }
+
+    @Test func copyToFolderSkipsOnConflictWhenConfiguredAndDoesNotStopTheChain() throws {
+        let dir = TempDir()
+        let destination = dir.dir("Archive")
+        let existing = (destination as NSString).appendingPathComponent("note.txt")
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+        let file = dir.file("note.txt", contents: "new")
+        let copyAction = makeAction(.copyToFolder, .object([
+            "destination": .string(destination),
+            "on_conflict": .string("skip"),
+        ]))
+
+        let planned = try ActionExecutor.plan(copyAction, path: file)
+
+        #expect(planned.status == .wouldSkip)
+        // Unlike moveToFolder, a skipped copy never terminates the chain —
+        // later actions in the rule still act on the (untouched) original.
+        #expect(!planned.isTerminal)
+        #expect(try String(contentsOfFile: existing, encoding: .utf8) == "old")
+    }
+
     @Test func revertMoveRestoresFileToOriginalLocation() throws {
         let dir = TempDir()
         let file = dir.file("note.txt", contents: "hello")

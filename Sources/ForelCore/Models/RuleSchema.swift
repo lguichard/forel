@@ -217,6 +217,19 @@ public extension ActionKind {
         }
     }
 
+    /// Whether this action kind has an "Options" popover in the rule editor
+    /// (e.g. Move/Copy to Folder's conflict resolution, Run Shortcut's input
+    /// mode) — used to hide the options button entirely for actions that
+    /// have none, instead of showing an empty "No options" popover.
+    var hasOptions: Bool {
+        switch self {
+        case .moveToFolder, .copyToFolder, .runShortcut:
+            return true
+        case .rename, .addTag, .removeTag, .setColorLabel, .runScript, .moveToTrash, .delete:
+            return false
+        }
+    }
+
     /// Parameters this action reads from its `params` JSON. Empty for actions
     /// that take none (trash/delete).
     var params: [ActionParamSpec] {

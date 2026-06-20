@@ -102,6 +102,30 @@ import Foundation
         #expect(planned.rules[1].actions[0].status == .wouldRun)
     }
 
+    @Test func skippedCopyDoesNotStopFollowingActionsInTheSameRule() throws {
+        let dir = TempDir()
+        let destination = dir.dir("Archive")
+        let existing = (destination as NSString).appendingPathComponent("note.txt")
+        try "old".write(toFile: existing, atomically: true, encoding: .utf8)
+        let file = dir.file("note.txt", contents: "new")
+
+        var rule = makeRule(name: "copy then tag", conditions: [makeCondition(.extension_, .is, "txt")])
+        rule.actions = [
+            makeAction(.copyToFolder, .object([
+                "destination": .string(destination),
+                "on_conflict": .string("skip"),
+            ]), position: 0, ruleId: rule.id),
+            makeAction(.addTag, .object(["tag": .string("Reviewed")]), position: 1, ruleId: rule.id),
+        ]
+
+        let planned = try #require(RulePlanner.planFile(path: file, depth: 0, rules: [rule], root: dir.path))
+
+        #expect(planned.rules.count == 1)
+        #expect(planned.rules[0].actions.count == 2)
+        #expect(planned.rules[0].actions[0].status == .wouldSkip)
+        #expect(planned.rules[0].actions[1].status == .wouldRun)
+    }
+
     @Test func moveToFolderTowardCurrentParentIsAlreadyInDestinationSkip() throws {
         let dir = TempDir()
         let pdfDir = dir.dir("PDF")

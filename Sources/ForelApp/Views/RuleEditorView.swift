@@ -579,18 +579,22 @@ private struct ActionRow: View {
                 .frame(width: 380, alignment: .leading)
                 .frame(minHeight: 32)
 
-            Button {
-                showingOptions.toggle()
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .buttonStyle(IconButtonStyle())
-            .help("Action options")
-            .frame(width: 28)
-            .popover(isPresented: $showingOptions, arrowEdge: .bottom) {
-                ActionOptionsView(action: $action)
-                    .padding(14)
-                    .frame(width: 280)
+            if action.kind.hasOptions {
+                Button {
+                    showingOptions.toggle()
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Action options")
+                .frame(width: 28)
+                .popover(isPresented: $showingOptions, arrowEdge: .bottom) {
+                    ActionOptionsView(action: $action)
+                        .padding(14)
+                        .frame(width: 280)
+                }
+            } else {
+                Spacer().frame(width: 28)
             }
 
             Button(role: .destructive, action: onDelete) {
@@ -685,8 +689,8 @@ private struct ActionOptionsView: View {
             switch action.kind {
             case .runShortcut:
                 shortcutOptions
-            case .moveToFolder:
-                moveConflictOptions
+            case .moveToFolder, .copyToFolder:
+                conflictResolutionOptions
             default:
                 Text("No options for this action.")
                     .font(.system(size: 12))
@@ -695,7 +699,7 @@ private struct ActionOptionsView: View {
         }
     }
 
-    private var moveConflictOptions: some View {
+    private var conflictResolutionOptions: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("If a file already exists")
                 .font(.system(size: 11, weight: .medium))

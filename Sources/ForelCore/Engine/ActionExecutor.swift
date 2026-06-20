@@ -175,34 +175,39 @@ public enum ActionExecutor {
     }
 
     /// Moves `path` into `destDir` (created if needed). `resolution` decides
-    /// what happens if a file with the same name is already there: `.rename`
-    /// (the default, also used by the Trash/delete paths which have no user-
-    /// facing conflict choice) numbers the moved file instead; `.replace`
-    /// sends the existing file to the Trash first so it stays recoverable.
+    /// what happens if a file with the same name is already there (see
+    /// `resolveDestination`). Trash/delete have no user-facing conflict
+    /// choice and always use the `.rename` default.
     private static func moveIntoDir(path: String, destDir: String, resolution: MoveConflictResolution = .rename) throws -> Applied {
         try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
         let fileName = (path as NSString).lastPathComponent
         let naiveDest = (destDir as NSString).appendingPathComponent(fileName)
+        let dest = try resolveDestination(naiveDest: naiveDest, dir: destDir, fileName: fileName, resolution: resolution)
+        try FileManager.default.moveItem(atPath: path, toPath: dest)
+        return Applied(newPath: dest, undo: .move(from: path, to: dest))
+    }
 
-        let dest: String
+    /// Resolves the actual path a move/copy should write to, given the
+    /// configured conflict resolution: `.rename` numbers the file instead;
+    /// `.replace` sends whatever is already at `naiveDest` to the Trash
+    /// first, so it stays recoverable, then returns `naiveDest` itself;
+    /// `.skip` also returns `naiveDest` — planning already turns a real
+    /// conflict under `.skip` into `wouldSkip` so this is never reached with
+    /// one in practice, and if it somehow is, the caller's move/copy call
+    /// throws instead of silently overwriting.
+    private static func resolveDestination(naiveDest: String, dir: String, fileName: String, resolution: MoveConflictResolution) throws -> String {
         switch resolution {
         case .rename:
-            dest = uniqueDest(dir: destDir, fileName: fileName)
+            return uniqueDest(dir: dir, fileName: fileName)
         case .replace:
             if FileManager.default.fileExists(atPath: naiveDest) {
                 let displaced = uniqueDest(dir: try trashDir(), fileName: fileName)
                 try FileManager.default.moveItem(atPath: naiveDest, toPath: displaced)
             }
-            dest = naiveDest
+            return naiveDest
         case .skip:
-            // Planning turns a real conflict into `wouldSkip` so this is
-            // never reached with one in practice; if it somehow is,
-            // `moveItem` below throws instead of silently overwriting.
-            dest = naiveDest
+            return naiveDest
         }
-
-        try FileManager.default.moveItem(atPath: path, toPath: dest)
-        return Applied(newPath: dest, undo: .move(from: path, to: dest))
     }
 
     static func conflictResolution(_ action: Action) -> MoveConflictResolution {
@@ -214,7 +219,8 @@ public enum ActionExecutor {
         let destDir = try stringParam(action, ActionParam.destination, "CopyToFolder")
         try FileManager.default.createDirectory(atPath: destDir, withIntermediateDirectories: true)
         let fileName = (path as NSString).lastPathComponent
-        let dest = uniqueDest(dir: destDir, fileName: fileName)
+        let naiveDest = (destDir as NSString).appendingPathComponent(fileName)
+        let dest = try resolveDestination(naiveDest: naiveDest, dir: destDir, fileName: fileName, resolution: conflictResolution(action))
         try FileManager.default.copyItem(atPath: path, toPath: dest)
         return Applied(newPath: path, undo: .copy(copy: dest))
     }
@@ -323,22 +329,7 @@ public enum ActionExecutor {
                 )
             }
 
-            let target: String
-            let description: String
-            switch resolution {
-            case .rename:
-                target = conflicts ? uniqueDest(dir: destDir, fileName: fileName) : naiveTarget
-                description = conflicts ? "Move to \(target) (renamed to avoid an existing file)" : "Move to \(target)"
-            case .replace:
-                target = naiveTarget
-                description = conflicts ? "Move to \(target) (replacing existing file)" : "Move to \(target)"
-            case .skip:
-                // `conflicts` is false here (the conflicting case returned
-                // above), so this behaves like a plain move.
-                target = naiveTarget
-                description = "Move to \(target)"
-            }
-
+            let (target, description) = conflictAwarePlan(verb: "Move", naiveTarget: naiveTarget, destDir: destDir, fileName: fileName, resolution: resolution, conflicts: conflicts)
             return ActionPlan(
                 kind: action.kind,
                 description: description,
@@ -351,13 +342,33 @@ public enum ActionExecutor {
             )
         case .copyToFolder:
             let destDir = action.params[ActionParam.destination]?.stringValue ?? ""
-            let target = (destDir as NSString).appendingPathComponent(fileName)
+            let naiveTarget = (destDir as NSString).appendingPathComponent(fileName)
+            let resolution = conflictResolution(action)
+            let conflicts = FileManager.default.fileExists(atPath: naiveTarget)
+
+            if conflicts && resolution == .skip {
+                return ActionPlan(
+                    kind: action.kind,
+                    description: "Skip — a file already exists at \(naiveTarget)",
+                    sourcePath: path,
+                    targetPath: naiveTarget,
+                    status: .wouldSkip,
+                    finalPath: path,
+                    copiedPath: nil,
+                    // Unlike moveToFolder, a copy never takes the file out of
+                    // this location — later actions in this rule still act on
+                    // the original, so this never needs to stop the chain.
+                    isTerminal: false
+                )
+            }
+
+            let (target, description) = conflictAwarePlan(verb: "Copy", naiveTarget: naiveTarget, destDir: destDir, fileName: fileName, resolution: resolution, conflicts: conflicts)
             return ActionPlan(
                 kind: action.kind,
-                description: "Copy to \(target)",
+                description: description,
                 sourcePath: path,
                 targetPath: target,
-                status: conflictStatus(target),
+                status: .wouldRun,
                 finalPath: path,
                 copiedPath: target,
                 isTerminal: false
@@ -533,6 +544,25 @@ public enum ActionExecutor {
 
     private static func conflictStatus(_ target: String) -> DryRunStatus {
         FileManager.default.fileExists(atPath: target) ? .blockedByConflict : .wouldRun
+    }
+
+    /// Shared by `moveToFolder`/`copyToFolder` planning: the resolved target
+    /// path and a human-readable description, for whichever resolution
+    /// doesn't just skip outright (that's handled separately by the caller).
+    private static func conflictAwarePlan(verb: String, naiveTarget: String, destDir: String, fileName: String, resolution: MoveConflictResolution, conflicts: Bool) -> (target: String, description: String) {
+        switch resolution {
+        case .rename:
+            let target = conflicts ? uniqueDest(dir: destDir, fileName: fileName) : naiveTarget
+            let description = conflicts ? "\(verb) to \(target) (renamed to avoid an existing file)" : "\(verb) to \(target)"
+            return (target, description)
+        case .replace:
+            let description = conflicts ? "\(verb) to \(naiveTarget) (replacing existing file)" : "\(verb) to \(naiveTarget)"
+            return (naiveTarget, description)
+        case .skip:
+            // `conflicts` is false here (the conflicting case is returned
+            // separately by the caller), so this behaves like a plain move/copy.
+            return (naiveTarget, "\(verb) to \(naiveTarget)")
+        }
     }
 
     private static func formatFileSize(_ bytes: UInt64) -> String {
