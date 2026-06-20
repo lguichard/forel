@@ -25,6 +25,8 @@ All notable changes to Forel are documented here. Format loosely follows
 - Fixed the watcher re-evaluating every file once after migrating to the new path-state schema, instead of trusting a matching fingerprint.
 - Fixed Run Script actions hanging forever when the script doesn't exit — they now time out after 60 seconds.
 - Delete now permanently removes the file instead of moving it to the Trash (undo is no longer available for Delete).
+- Fixed rename patterns containing `/` being able to move files outside the source directory — they now produce an error instead.
+- Rename patterns are now validated against macOS filename rules (`.`, `..`, trailing spaces/dots, max length) and show live warnings in the editor.
 - Fixed Dry Run showing an empty action area instead of explaining when a matched rule has no actions.
 - Fixed Activity becoming unresponsive when opening very large history logs.
 - Fixed renamed or moved files being immediately reprocessed by the watcher and receiving repeated rename suffixes.

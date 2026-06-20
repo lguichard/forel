@@ -969,7 +969,29 @@ private struct RenamePatternEditor: View {
     private var preview: String {
         let candidate = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else { return "Preview: " }
-        return "Preview: \(candidate)"
+        if candidate.contains("/") {
+            return "⚠️ Pattern contains '/' which is not allowed in filenames"
+        }
+        let previewName = candidate
+            .replacingOccurrences(of: "{name}", with: "file")
+            .replacingOccurrences(of: "{extension}", with: "txt")
+            .replacingOccurrences(of: "{current_date}", with: dateString())
+        if previewName == "." || previewName == ".." {
+            return "⚠️ Pattern resolves to '\(previewName)' which is not a valid filename"
+        }
+        if previewName.utf8.count > 255 {
+            return "⚠️ Pattern resolves to a filename longer than 255 characters"
+        }
+        if let last = previewName.last, last == "." || last == " " {
+            return "⚠️ Pattern resolves to '\(previewName)' — trailing '.' or space is not supported"
+        }
+        return "Preview: \(previewName)"
+    }
+
+    private func dateString() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
     private func tokenButton(_ token: (placeholder: String, label: String)) -> some View {

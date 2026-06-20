@@ -665,6 +665,8 @@ public enum ActionExecutor {
             throw ActionError("rename pattern produced empty filename")
         }
 
+        try validateMacOSFilename(result)
+
         // Append the original extension only when the pattern did not place it
         // explicitly (via the {extension} token or by typing it literally).
         let alreadyHasExt = result.lowercased().hasSuffix(".\(ext.lowercased())")
@@ -699,6 +701,25 @@ public enum ActionExecutor {
             throw ActionError("HOME not set")
         }
         return (home as NSString).appendingPathComponent(".Trash")
+    }
+
+    /// macOS filename rules: no `/` or null, not `.`/`..`, not empty,
+    /// no trailing dot/space (silently stripped by the filesystem and
+    /// impossible to use afterward), and within the 255-char limit.
+    /// Note: empty is already rejected earlier.
+    private static func validateMacOSFilename(_ name: String) throws {
+        if name.contains("/") {
+            throw ActionError("rename pattern produced an invalid filename (contains '/')")
+        }
+        if name == "." || name == ".." {
+            throw ActionError("rename pattern produced an invalid filename ('.' and '..' are not allowed)")
+        }
+        if name.utf8.count > 255 {
+            throw ActionError("rename pattern produced a filename longer than 255 characters")
+        }
+        if let lastChar = name.last, lastChar == "." || lastChar == " " {
+            throw ActionError("rename pattern produced a filename ending with '.' or space — not supported by macOS")
+        }
     }
 }
 
