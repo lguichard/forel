@@ -82,10 +82,13 @@ struct HistoryView: View {
         .padding(.vertical, 50)
     }
 
-    /// Number of still-applied, reversible entries in a batch — drives whether
-    /// the per-batch undo button is shown and its count.
+    /// Number of entries in a batch that are actually safe to undo right
+    /// now — drives whether the per-batch undo button is shown and its
+    /// count. Checked live, not just `status == .applied && reversible`, so
+    /// the button never offers an undo that's already known to fail (e.g.
+    /// the file no longer exists at its expected location).
     private func undoableCount(_ entries: [HistoryEntry]) -> Int {
-        entries.filter { $0.status == .applied && $0.reversible }.count
+        entries.filter { model.canUndo($0) }.count
     }
 
     /// Shows the leading portion of the ISO timestamp; good enough as a header
@@ -182,11 +185,11 @@ private struct HistoryRow: View {
 
             if entry.status == .undone {
                 statusBadge
-            } else if entry.status == .applied && entry.reversible {
+            } else if model.canUndo(entry) {
                 Button("Undo") { model.undo(entry) }
                     .buttonStyle(SecondaryButtonStyle())
             } else {
-                statusBadge
+                statusBadge.help(undoBlockedReason ?? "")
             }
         }
         .padding(.vertical, 8)
@@ -195,6 +198,17 @@ private struct HistoryRow: View {
 
     private var label: String {
         entry.actionKind.label
+    }
+
+    /// Why an applied, reversible entry still can't be undone right now —
+    /// shown as a tooltip on its status badge instead of a button that
+    /// would just fail when clicked.
+    private var undoBlockedReason: String? {
+        guard entry.status == .applied, entry.reversible else { return nil }
+        switch model.undoSafety(for: entry) {
+        case .safe: return nil
+        case .unsafeToUndo(let reason), .needsConfirmation(let reason): return reason
+        }
     }
 
     private var statusBadge: some View {

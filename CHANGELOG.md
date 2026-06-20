@@ -19,6 +19,7 @@ All notable changes to Forel are documented here. Format loosely follows
 - Fixed a crash that could occur while a rule was running.
 - Clear History now fully clears everything Forel has recorded, instead of leaving some of it behind.
 - Fixed the automatic watcher repeatedly re-running a Copy to Folder rule on the same untouched file, flooding Activity with duplicate entries.
+- The Activity log no longer offers Undo or Undo Batch for actions that can no longer actually be undone (e.g. the file was since moved or deleted) — hovering the status now explains why.
 
 ## [0.1.0-beta.5] - 2026-06-19
 

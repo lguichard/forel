@@ -341,6 +341,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What `UndoPlanner` thinks of undoing `entry` right now, against the
+    /// live filesystem — used to decide whether to even show an Undo button,
+    /// not just what happens when it's clicked.
+    func undoSafety(for entry: HistoryEntry) -> UndoSafety {
+        guard entry.status == .applied else {
+            return .unsafeToUndo(reason: "This action is not currently applied.")
+        }
+        let recentEvents = (try? db.listFilesystemEvents(path: entry.resultPath)) ?? []
+        return UndoPlanner.evaluate(entry, recentEvents: recentEvents)
+    }
+
+    /// Whether an Undo button for `entry` would actually work right now.
+    /// `needsConfirmation` isn't offered either: there's no confirmation UI
+    /// yet, so showing the button would just fail the same way `unsafeToUndo`
+    /// would.
+    func canUndo(_ entry: HistoryEntry) -> Bool {
+        if case .safe = undoSafety(for: entry) { return true }
+        return false
+    }
+
     /// Reverses `entry` only if `UndoPlanner` finds it safe — never a silent
     /// best-effort rollback on a file that no longer matches what Forel
     /// originally changed.
@@ -359,25 +379,29 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Reverts every still-applied, reversible entry in a batch. Entries are
-    /// undone in reverse application order so chained actions on the same file
-    /// (e.g. tag then rename) revert correctly. Each entry is still checked
-    /// individually by `UndoPlanner` — one unsafe entry doesn't block the rest.
+    /// Reverts every entry in a batch that's actually safe to undo right now
+    /// (the same check that decides whether its Undo button is shown), in
+    /// reverse application order so chained actions on the same file (e.g.
+    /// tag then rename) revert correctly. Entries that aren't safe are left
+    /// untouched rather than attempted and reported as a failure — the user
+    /// was never offered them in the first place.
     func undoBatch(_ batchId: String) {
         let entries = (try? db.listHistoryBatch(batchId)) ?? []
-        let reversible = entries.filter { $0.status == .applied && $0.reversible }
-        let recentEvents = reversible.flatMap { (try? db.listFilesystemEvents(path: $0.resultPath)) ?? [] }
-        let results = UndoPlanner.applyBatch(reversible, recentEvents: recentEvents)
+        let undoable = entries.filter { canUndo($0) }
+        let recentEvents = undoable.flatMap { (try? db.listFilesystemEvents(path: $0.resultPath)) ?? [] }
+        let results = UndoPlanner.applyBatch(undoable, recentEvents: recentEvents)
 
         var failures: [String] = []
         for result in results {
-            guard let entry = reversible.first(where: { $0.id == result.entryId }) else { continue }
+            guard let entry = undoable.first(where: { $0.id == result.entryId }) else { continue }
             switch result.outcome {
             case .applied:
                 try? db.insertHistoryEntries(result.history)
                 try? db.insertFilesystemEvents(result.events)
                 try? db.markHistoryUndone(entry.id)
             case .blocked(let reason), .needsConfirmation(let reason):
+                // Rare: the file changed in the instant between rendering
+                // the button and this click.
                 failures.append("\((entry.originalPath as NSString).lastPathComponent): \(reason)")
             }
         }
