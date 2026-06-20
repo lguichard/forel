@@ -45,7 +45,7 @@ import Foundation
             ]),
         ]
 
-        let (matched, _) = RuleEngine.evaluateFile(path: file, depth: 0, rules: rules, batchId: "batch")
+        let (matched, _) = RuleEngine.run(path: file, depth: 0, rules: rules, batchId: "batch")
         #expect(matched == ["any contents-gated"])
     }
 
