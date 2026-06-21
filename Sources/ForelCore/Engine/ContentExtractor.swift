@@ -189,13 +189,22 @@ public enum ContentExtractor {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+
+        let semaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in semaphore.signal() }
+
         do {
             try process.run()
         } catch {
             return false
         }
+
+        guard semaphore.wait(timeout: .now() + 15) == .success else {
+            process.terminate()
+            return false
+        }
+
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         guard let out = String(data: data, encoding: .utf8) else { return false }
         let target = (path as NSString).standardizingPath
         return out.split(separator: "\n").contains { ($0 as NSString).standardizingPath == target }
@@ -311,6 +320,7 @@ public enum ContentExtractor {
         if Thread.isMainThread {
             return make()
         }
+        // main queue can't deadlock on itself because of the guard above.
         return DispatchQueue.main.sync(execute: make)
     }
 
@@ -388,10 +398,12 @@ public enum ContentExtractor {
         return String(data: combined, encoding: .utf8)
     }
 
-    /// Collapses an XML fragment to readable text: drops tags, decodes the
-    /// common entities, and squeezes whitespace.
+    /// Collapses an XML fragment to readable text: strips comments, drops tags,
+    /// decodes the common entities, and squeezes whitespace.
     private static func strippedXMLText(_ xml: String) -> String {
-        var text = xml.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+        // Strip XML comments first so `>` inside comments doesn't break the tag regex.
+        var text = xml.replacingOccurrences(of: "(?s)<!--.*?-->", with: " ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
         let entities = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&apos;": "'"]
         for (entity, value) in entities {
             text = text.replacingOccurrences(of: entity, with: value)
