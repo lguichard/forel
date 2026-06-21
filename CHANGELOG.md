@@ -3,6 +3,11 @@
 All notable changes to Forel are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- Activity and Dry Run text (file paths, messages, rule names) can now be selected and copied.
+
 ## [1.0.0] - 2026-06-21
 
 🎉🍾 **Forel is exiting beta.** This release marks the transition to a stable. Faster, safer, and ready for everyday use.
