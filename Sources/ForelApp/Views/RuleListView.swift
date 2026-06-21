@@ -344,6 +344,7 @@ private struct PreviewSheet: View {
                     }
                 }
             }
+            .textSelection(.enabled)
             .scrollIndicators(.never)
 
             HStack {
