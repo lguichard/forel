@@ -10,6 +10,7 @@ All notable changes to Forel are documented here. Format loosely follows
 
 ### Fixed
 - Fixed content extraction from Office documents and OpenDocument files sometimes missing text when the internal XML contained `>` characters inside comments.
+- RTF, RTFD, Word (.doc/.docx) files now respect a 100 MB size limit instead of attempting to load oversized documents.
 
 ## [1.0.0] - 2026-06-21
 

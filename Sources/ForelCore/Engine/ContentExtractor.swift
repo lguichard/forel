@@ -77,7 +77,7 @@ public enum ContentExtractor {
     private static let pdfOCRRenderScale: CGFloat = 2.0
     private static let ocrImageMaxBytes: UInt64 = 25 * 1024 * 1024
     private static let ocrMaxDimension = 12_000
-    private static let officeZipMaxBytes: UInt64 = 100 * 1024 * 1024
+    private static let defaultMaxBytes: UInt64 = 100 * 1024 * 1024
 
     private static let plainTextExtensions: Set<String> = [
         "txt", "md", "csv", "tsv", "json", "xml", "yaml", "yml", "html", "css",
@@ -296,6 +296,9 @@ public enum ContentExtractor {
     // MARK: - AppKit documents (RTF / Word)
 
     private static func extractAttributed(path: String, documentType: NSAttributedString.DocumentType, strategy: ContentStrategy) -> ContentExtraction {
+        if fileSize(path) > defaultMaxBytes {
+            return ContentExtraction(text: nil, strategy: .none, message: "Document exceeds the 100 MB limit.")
+        }
         let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: documentType]
         guard let attributed = attributedString(url: URL(fileURLWithPath: path), options: options) else {
             return ContentExtraction(text: nil, strategy: .none, message: "Could not read document.")
@@ -330,7 +333,7 @@ public enum ContentExtractor {
     /// (`xl/sharedStrings.xml`) and, for numbers and inline values, in the
     /// per-sheet XML.
     private static func extractXLSX(path: String, size: UInt64) -> ContentExtraction {
-        if size > officeZipMaxBytes {
+        if size > defaultMaxBytes {
             return ContentExtraction(text: nil, strategy: .none, message: "Spreadsheet exceeds the 100 MB limit.")
         }
         guard let xml = zipText(path: path, matching: { member in
@@ -348,7 +351,7 @@ public enum ContentExtractor {
     /// `.pptx` is a zip of XML parts; the slide text lives in
     /// `ppt/slides/slideN.xml`.
     private static func extractPPTX(path: String, size: UInt64) -> ContentExtraction {
-        if size > officeZipMaxBytes {
+        if size > defaultMaxBytes {
             return ContentExtraction(text: nil, strategy: .none, message: "Presentation exceeds the 100 MB limit.")
         }
         guard let xml = zipText(path: path, matching: { member in
@@ -368,7 +371,7 @@ public enum ContentExtractor {
     /// OpenDocument files are zip archives whose body text lives in a single,
     /// well-documented `content.xml` part. Read it and strip the markup.
     private static func extractOpenDocument(path: String, size: UInt64) -> ContentExtraction {
-        if size > officeZipMaxBytes {
+        if size > defaultMaxBytes {
             return ContentExtraction(text: nil, strategy: .none, message: "Document exceeds the 100 MB limit.")
         }
         guard let xml = zipText(path: path, matching: { $0 == "content.xml" }) else {
@@ -420,7 +423,7 @@ public enum ContentExtractor {
     /// flat-file (zip) and package (directory) on-disk shapes. When there's no
     /// preview, the evaluator can still fall back to Spotlight for `contains`.
     private static func extractIWork(path: String, size: UInt64) -> ContentExtraction {
-        if size > officeZipMaxBytes {
+        if size > defaultMaxBytes {
             return ContentExtraction(text: nil, strategy: .none, message: "iWork document exceeds the 100 MB limit.")
         }
         guard let pdfData = iWorkPreviewPDF(path: path), let doc = PDFDocument(data: pdfData) else {

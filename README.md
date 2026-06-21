@@ -229,8 +229,8 @@ File path
 |------|---------|--------|
 | Plain text | `.txt` `.md` `.csv` `.tsv` `.json` `.xml` `.yaml` `.yml` `.html` `.css` `.js` `.ts` `.swift` `.rs` `.py` `.rb` `.go` `.java` `.c` `.cpp` `.h` `.log`, plus any other text file (`.ini`, `.conf`, no extension, …) | 50 MB |
 | PDF | `.pdf` (text layer, or OCR for scanned PDFs) | 100 MB / 100 pages · OCR 20 pages |
-| Rich text | `.rtf` `.rtfd` | — |
-| Word | `.doc` `.docx` | — |
+| Rich text | `.rtf` `.rtfd` | 100 MB |
+| Word | `.doc` `.docx` | 100 MB |
 | Excel | `.xlsx` | 100 MB |
 | PowerPoint | `.pptx` | 100 MB |
 | Apple iWork | `.pages` `.numbers` `.key` | 100 MB |
