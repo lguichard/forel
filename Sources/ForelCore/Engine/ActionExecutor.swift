@@ -339,11 +339,11 @@ public enum ActionExecutor {
 
         let resolution = conflictResolution(action, default: .skip)
         if resolution == .skip {
-            if try libraryContainsFile(path, libraryType: libraryType) {
+            if try libraryContainsFile(path, libraryType: libraryType, launchIfNeeded: true) {
                 throw ActionError("Skip — file already exists in \(libraryType.label)")
             }
         } else if resolution == .replace {
-            if try libraryContainsFile(path, libraryType: libraryType) {
+            if try libraryContainsFile(path, libraryType: libraryType, launchIfNeeded: true) {
                 try removeFromLibrary(path, libraryType: libraryType)
             }
         }
@@ -375,15 +375,35 @@ public enum ActionExecutor {
         }
     }
 
-    private static func libraryContainsFile(_ path: String, libraryType: LibraryType) throws -> Bool {
+    /// Checks whether the file already exists in the target library.
+    ///
+    /// For Music/TV this talks to the app over AppleScript. When `launchIfNeeded`
+    /// is `false` (Dry Run) and the app isn't already running, it returns `false`
+    /// rather than launching the app for a mere preview.
+    private static func libraryContainsFile(_ path: String, libraryType: LibraryType, launchIfNeeded: Bool) throws -> Bool {
         switch libraryType {
         case .music:
-            return try musicTVLibraryContainsFile(app: "Music", path: path)
+            return try musicTVLibraryContainsFile(app: "Music", path: path, launchIfNeeded: launchIfNeeded)
         case .photos:
             return photosLibraryContainsFile(path)
         case .tv:
-            return try musicTVLibraryContainsFile(app: "TV", path: path)
+            return try musicTVLibraryContainsFile(app: "TV", path: path, launchIfNeeded: launchIfNeeded)
         }
+    }
+
+    /// Size of the file on disk in bytes, used to confirm a library match by
+    /// content rather than only by path (Music/TV copy files into their media
+    /// folder, so the original path no longer matches once imported).
+    private static func fileByteSize(_ path: String) -> Int64? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+        return (attrs[.size] as? NSNumber)?.int64Value
+    }
+
+    /// Whether the given app already has a running process, checked via System
+    /// Events so we don't launch the app itself just to ask.
+    private static func isAppRunning(_ app: String) -> Bool {
+        let script = "tell application \"System Events\" to (exists (process \"\(appleScriptEscapePath(app))\"))"
+        return (try? runAppleScript(script)) == "true"
     }
 
     private static func removeFromLibrary(_ path: String, libraryType: LibraryType) throws {
@@ -452,17 +472,35 @@ public enum ActionExecutor {
         try runAppleScript(script)
     }
 
-    private static func musicTVLibraryContainsFile(app: String, path: String) throws -> Bool {
+    /// The individual `whose track` predicates used to locate a file in the
+    /// library. We try each separately rather than combining them with `or` in a
+    /// single `whose` clause — AppleScript rejects that compound form. The first
+    /// matches reference imports (track still points at the original path); the
+    /// second matches copied imports (the file now lives in the media folder, so
+    /// only its byte size still lines up).
+    private static func musicTVMatchPredicates(path: String) -> [String] {
+        var predicates = ["location is fileRef"]
+        if let size = fileByteSize(path) {
+            predicates.append("size is \(size)")
+        }
+        return predicates
+    }
+
+    private static func musicTVLibraryContainsFile(app: String, path: String, launchIfNeeded: Bool) throws -> Bool {
+        if !launchIfNeeded && !isAppRunning(app) { return false }
         let escaped = appleScriptEscapePath(path)
+        let checks = musicTVMatchPredicates(path: path).map { predicate in
+            """
+                try
+                    if (count of (every track whose \(predicate))) > 0 then return true
+                end try
+            """
+        }.joined(separator: "\n")
         let script = """
         tell application "\(app)"
             set fileRef to (POSIX file "\(escaped)") as alias
-            try
-                set matched to (every track whose location is fileRef)
-                return (count of matched) > 0
-            on error
-                return false
-            end try
+        \(checks)
+            return false
         end tell
         """
         let result = try runAppleScript(script)
@@ -471,15 +509,19 @@ public enum ActionExecutor {
 
     private static func removeFromMusicTVLibrary(app: String, path: String) throws {
         let escaped = appleScriptEscapePath(path)
+        let deletions = musicTVMatchPredicates(path: path).map { predicate in
+            """
+                try
+                    repeat with t in (every track whose \(predicate))
+                        delete t
+                    end repeat
+                end try
+            """
+        }.joined(separator: "\n")
         let script = """
         tell application "\(app)"
             set fileRef to (POSIX file "\(escaped)") as alias
-            try
-                set matched to (every track whose location is fileRef)
-                repeat with t in matched
-                    delete t
-                end repeat
-            end try
+        \(deletions)
         end tell
         """
         try runAppleScript(script)
@@ -487,16 +529,51 @@ public enum ActionExecutor {
 
     // MARK: - Photos import
 
+    #if canImport(Photos)
+    /// Local identifiers of assets that match the file at `path`. Matching is by
+    /// original filename **and** byte size — the size check prevents `replace`
+    /// from deleting an unrelated photo that merely shares a name (e.g. two
+    /// different `IMG_0001.jpg`). When the source size is unknown, falls back to
+    /// filename only.
+    ///
+    /// `originalFilename` is not a queryable key in a `PHFetchOptions` predicate
+    /// (using it crashes with `NSInvalidArgumentException`), so we narrow the
+    /// fetch by media type — which *is* supported — and match filename/size in
+    /// code via each asset's resources.
+    private static func matchingPhotoAssetIds(forFileAt path: String) -> [String] {
+        let url = URL(fileURLWithPath: path)
+        let filename = url.lastPathComponent
+        let sourceSize = fileByteSize(path)
+
+        let isVideo = (try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier)
+            .flatMap(UTType.init)?.conforms(to: .movie) ?? false
+        let mediaType: PHAssetMediaType = isVideo ? .video : .image
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", mediaType.rawValue)
+
+        let existing = PHAsset.fetchAssets(with: options)
+        var ids: [String] = []
+        existing.enumerateObjects { asset, _, _ in
+            let resources = PHAssetResource.assetResources(for: asset)
+            guard resources.contains(where: { $0.originalFilename == filename }) else { return }
+            guard let sourceSize else {
+                ids.append(asset.localIdentifier)
+                return
+            }
+            let sizeMatches = resources.contains { resource in
+                (resource.value(forKey: "fileSize") as? NSNumber)?.int64Value == sourceSize
+            }
+            if sizeMatches { ids.append(asset.localIdentifier) }
+        }
+        return ids
+    }
+    #endif
+
     private static func photosLibraryContainsFile(_ path: String) -> Bool {
         #if canImport(Photos)
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         guard status == .authorized || status == .limited else { return false }
-        let url = URL(fileURLWithPath: path)
-        let filename = url.lastPathComponent
-        let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "originalFilename == %@", filename)
-        let existing = PHAsset.fetchAssets(with: options)
-        return existing.count > 0
+        return !matchingPhotoAssetIds(forFileAt: path).isEmpty
         #else
         return false
         #endif
@@ -504,17 +581,10 @@ public enum ActionExecutor {
 
     private static func removeFromPhotosLibrary(_ path: String) throws {
         #if canImport(Photos)
-        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized else { return }
-        let url = URL(fileURLWithPath: path)
-        let filename = url.lastPathComponent
-        let options = PHFetchOptions()
-        options.predicate = NSPredicate(format: "originalFilename == %@", filename)
-        let existing = PHAsset.fetchAssets(with: options)
-        guard existing.count > 0 else { return }
-        var localIds: [String] = []
-        existing.enumerateObjects { asset, _, _ in
-            localIds.append(asset.localIdentifier)
-        }
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else { return }
+        let localIds = matchingPhotoAssetIds(forFileAt: path)
+        guard !localIds.isEmpty else { return }
         try PHPhotoLibrary.shared().performChangesAndWait {
             let assets = PHAsset.fetchAssets(withLocalIdentifiers: localIds, options: nil)
             PHAssetChangeRequest.deleteAssets(assets)
@@ -524,9 +594,6 @@ public enum ActionExecutor {
 
     private static func importToPhotos(path: String, album: String = "") throws {
         #if canImport(Photos)
-        if let msg = ensureLibraryAccess(libraryType: .photos) {
-            throw ActionError("Photos library \(msg)")
-        }
         let url = URL(fileURLWithPath: path)
         var targetAlbum: PHAssetCollection?
         if !album.isEmpty {
@@ -535,13 +602,11 @@ public enum ActionExecutor {
             let collections = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: options)
             targetAlbum = collections.firstObject
         }
+        let isVideo = (try? url.resourceValues(forKeys: [.typeIdentifierKey]).typeIdentifier)
+            .flatMap(UTType.init)?.conforms(to: .movie) ?? false
         try PHPhotoLibrary.shared().performChangesAndWait {
-            let ext = url.pathExtension.lowercased()
-            let videoExtensions = Set(["mov", "mp4", "m4v", "avi", "mts", "m2ts"])
             let request: PHAssetChangeRequest?
-            if videoExtensions.contains(ext),
-               let utType = UTType(filenameExtension: ext),
-               utType.conforms(to: .movie) {
+            if isVideo {
                 request = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
             } else {
                 request = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: url)
@@ -574,6 +639,14 @@ public enum ActionExecutor {
         }
     }
 
+    #if canImport(Photos)
+    /// Thread-safe holder for the authorization result delivered on an arbitrary
+    /// queue; the surrounding semaphore establishes the happens-before ordering.
+    private final class AuthStatusBox: @unchecked Sendable {
+        var status: PHAuthorizationStatus = .denied
+    }
+    #endif
+
     private static func ensurePhotosAccess() -> String? {
         #if canImport(Photos)
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -586,13 +659,13 @@ public enum ActionExecutor {
             return "access restricted by parental controls."
         case .notDetermined:
             let semaphore = DispatchSemaphore(value: 0)
-            var result: PHAuthorizationStatus = .denied
+            let box = AuthStatusBox()
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
-                result = status
+                box.status = status
                 semaphore.signal()
             }
             semaphore.wait()
-            switch result {
+            switch box.status {
             case .authorized, .limited:
                 return nil
             case .denied:
@@ -873,7 +946,7 @@ public enum ActionExecutor {
             }
 
             let resolution = conflictResolution(action, default: .skip)
-            let alreadyExists = try libraryContainsFile(path, libraryType: libraryType)
+            let alreadyExists = try libraryContainsFile(path, libraryType: libraryType, launchIfNeeded: false)
 
             if alreadyExists && resolution == .skip {
                 return ActionPlan(

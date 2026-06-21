@@ -232,7 +232,7 @@ public extension ActionKind {
         switch self {
         case .moveToFolder, .copyToFolder, .runShortcut, .rename, .importToLibrary:
             return true
-        case .addTag, .removeTag, .setColorLabel, .runScript, .moveToTrash, .delete, .importToLibrary:
+        case .addTag, .removeTag, .setColorLabel, .runScript, .moveToTrash, .delete:
             return false
         }
     }

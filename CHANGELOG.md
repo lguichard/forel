@@ -6,11 +6,10 @@ All notable changes to Forel are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
-- Added an Import to Library action that can add files to the Music, Photos, or TV native macOS libraries. Supports conflict resolution options: rename (always import), replace (remove existing entry before re-importing), and skip (leave untouched when already present). File format compatibility is checked before each import — the Photos access requires prior authorization in System Settings.
+- Added an Import to Library action that can add files to the Music, Photos, or TV native macOS libraries. When a file is already present you can choose to skip it (leave the library untouched) or replace it (remove the existing entry before re-importing). File format compatibility is checked before each import, and importing into Photos requires granting access in System Settings.
 
 ### Changed
 - Activity and Dry Run text (file paths, messages, rule names) can now be selected and copied.
-
 
 ## [1.0.0] - 2026-06-21
 
