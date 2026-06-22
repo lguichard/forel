@@ -79,21 +79,21 @@ final class AppModel: ObservableObject {
         // immediately means triggering permission prompts and risking rule-less
         // surprises before they've configured anything. Once they've explicitly
         // set this either way, that choice persists.
-        let storedPaused = try? db.getSetting("paused")
+        let storedPaused = db.withLock { db in try? db.getSetting("paused") }
         self.paused = storedPaused.map { $0 == "1" } ?? true
 
-        let storedAccent = (try? db.getSetting("accent_color")) ?? nil
+        let storedAccent = db.withLock { db in (try? db.getSetting("accent_color")) ?? nil }
         let preset = storedAccent.flatMap(AccentPreset.init(rawValue:)) ?? .default
         self.accentPreset = preset
         ForelTheme.apply(preset)
 
-        let storedTheme = (try? db.getSetting("theme")) ?? nil
+        let storedTheme = db.withLock { db in (try? db.getSetting("theme")) ?? nil }
         self.appTheme = storedTheme.flatMap(AppTheme.init(rawValue:)) ?? .system
 
-        let storedShowDockIcon = try? db.getSetting("show_dock_icon")
+        let storedShowDockIcon = db.withLock { db in try? db.getSetting("show_dock_icon") }
         self.showDockIcon = storedShowDockIcon.map { $0 == "1" } ?? true
 
-        let storedMaxDays = (try? db.getSetting("history_max_days")).flatMap { Int($0) }
+        let storedMaxDays = db.withLock { db in (try? db.getSetting("history_max_days")).flatMap { Int($0) } }
         self.historyMaxDays = min(max(storedMaxDays ?? 30, 1), 30)
 
         reloadFolders()
@@ -150,27 +150,27 @@ final class AppModel: ObservableObject {
 
     func setShowDockIcon(_ enabled: Bool) {
         showDockIcon = enabled
-        try? db.setSetting("show_dock_icon", enabled ? "1" : "0")
+        db.withLock { db in try? db.setSetting("show_dock_icon", enabled ? "1" : "0") }
         applyDockIconPreference(keepingWindowsVisible: true)
     }
 
     func setAppTheme(_ theme: AppTheme) {
         appTheme = theme
-        try? db.setSetting("theme", theme.rawValue)
+        db.withLock { db in try? db.setSetting("theme", theme.rawValue) }
     }
 
     func setAccentPreset(_ preset: AccentPreset) {
         accentPreset = preset
         ForelTheme.apply(preset)
         accentVersion += 1
-        try? db.setSetting("accent_color", preset.rawValue)
+        db.withLock { db in try? db.setSetting("accent_color", preset.rawValue) }
     }
 
     func setHistoryMaxDays(_ days: Int) {
         let clamped = min(max(days, 1), 30)
         guard clamped != historyMaxDays else { return }
         historyMaxDays = clamped
-        try? db.setSetting("history_max_days", "\(clamped)")
+        db.withLock { db in try? db.setSetting("history_max_days", "\(clamped)") }
         runHistoryCleanup()
     }
 
@@ -191,7 +191,7 @@ final class AppModel: ObservableObject {
     }
 
     func reloadFolders() {
-        folders = (try? db.listFolders()) ?? []
+        folders = db.withLock { db in (try? db.listFolders()) ?? [] }
         if let selectedFolderId, !folders.contains(where: { $0.id == selectedFolderId }) {
             self.selectedFolderId = folders.first?.id
         }
@@ -207,7 +207,7 @@ final class AppModel: ObservableObject {
 
     func reloadRules() {
         guard let folderId = selectedFolderId else { rules = []; return }
-        rules = (try? db.listRules(folderId: folderId)) ?? []
+        rules = db.withLock { db in (try? db.listRules(folderId: folderId)) ?? [] }
         reloadRuleRunStats()
     }
 
@@ -220,7 +220,8 @@ final class AppModel: ObservableObject {
     /// days — kept in sync with `rules` and `history`, since both can change
     /// what these totals should be.
     private func reloadRuleRunStats() {
-        ruleRunStats = (try? db.ruleRunStats(sinceDays: ruleRunStatsWindowDays)) ?? []
+        let days = ruleRunStatsWindowDays
+        ruleRunStats = db.withLock { db in (try? db.ruleRunStats(sinceDays: days)) ?? [] }
     }
 
     func runStats(for rule: Rule) -> RuleRunStats? {
@@ -250,11 +251,12 @@ final class AppModel: ObservableObject {
         let directoryPath = historyFilterDirectoryPath
         if reset {
             history = []
-            historyTotalCount = (try? db.countHistory(directoryPath: directoryPath)) ?? 0
+            historyTotalCount = db.withLock { db in (try? db.countHistory(directoryPath: directoryPath)) ?? 0 }
         }
 
         let offset = reset ? 0 : history.count
-        let page = (try? db.listHistory(limit: historyPageSize, offset: offset, directoryPath: directoryPath)) ?? []
+        let limit = historyPageSize
+        let page = db.withLock { db in (try? db.listHistory(limit: limit, offset: offset, directoryPath: directoryPath)) ?? [] }
         history = reset ? page : history + page
         hasMoreHistory = history.count < historyTotalCount
     }
@@ -266,7 +268,8 @@ final class AppModel: ObservableObject {
 
     private func startWatchingEnabledFolders() {
         guard !paused else { return }
-        for folder in (try? db.listFolders()) ?? [] where folder.enabled {
+        let allFolders = db.withLock { db in (try? db.listFolders()) ?? [] }
+        for folder in allFolders where folder.enabled {
             coordinator.add(folder.path)
         }
     }
@@ -286,7 +289,7 @@ final class AppModel: ObservableObject {
 
         let folder = WatchedFolder(path: normalizedPath)
         do {
-            try db.insertFolder(folder)
+            try db.withLock { db in try db.insertFolder(folder) }
             if !paused { coordinator.add(normalizedPath) }
             reloadFolders()
         } catch {
@@ -296,12 +299,12 @@ final class AppModel: ObservableObject {
 
     func removeFolder(_ folder: WatchedFolder) {
         coordinator.remove(folder.path)
-        try? db.deleteFolder(folder.id)
+        db.withLock { db in try? db.deleteFolder(folder.id) }
         reloadFolders()
     }
 
     func toggleFolder(_ folder: WatchedFolder, enabled: Bool) {
-        try? db.toggleFolder(folder.id, enabled: enabled)
+        db.withLock { db in try? db.toggleFolder(folder.id, enabled: enabled) }
         if enabled, !paused {
             coordinator.add(folder.path)
         } else {
@@ -311,16 +314,19 @@ final class AppModel: ObservableObject {
     }
 
     func reorderFolders(_ folderIds: [String]) {
-        try? db.reorderFolders(folderIds)
+        db.withLock { db in try? db.reorderFolders(folderIds) }
         reloadFolders()
     }
 
     func saveRule(_ rule: Rule) {
         do {
-            if rules.contains(where: { $0.id == rule.id }) {
-                try db.updateRule(rule)
-            } else {
-                try db.insertRule(rule)
+            let isUpdate = rules.contains(where: { $0.id == rule.id })
+            try db.withLock { db in
+                if isUpdate {
+                    try db.updateRule(rule)
+                } else {
+                    try db.insertRule(rule)
+                }
             }
             reloadRules()
         } catch {
@@ -329,18 +335,18 @@ final class AppModel: ObservableObject {
     }
 
     func deleteRule(_ rule: Rule) {
-        try? db.deleteRule(rule.id)
+        db.withLock { db in try? db.deleteRule(rule.id) }
         reloadRules()
     }
 
     func toggleRule(_ rule: Rule, enabled: Bool) {
-        try? db.toggleRule(rule.id, enabled: enabled)
+        db.withLock { db in try? db.toggleRule(rule.id, enabled: enabled) }
         reloadRules()
     }
 
     func reorderRules(_ ruleIds: [String]) {
         guard let folderId = selectedFolderId else { return }
-        try? db.reorderRules(folderId: folderId, ruleIds: ruleIds)
+        db.withLock { db in try? db.reorderRules(folderId: folderId, ruleIds: ruleIds) }
         reloadRules()
     }
 
@@ -369,7 +375,7 @@ final class AppModel: ObservableObject {
                 return allHistory
             }.value
             if !allHistory.isEmpty {
-                try? db.insertHistoryEntries(allHistory)
+                db.withLock { db in try? db.insertHistoryEntries(allHistory) }
             }
             reloadHistory()
             showRunNowMessage(
@@ -442,9 +448,12 @@ final class AppModel: ObservableObject {
     /// folder is disabled, since the watcher wouldn't reprocess anything in
     /// that case regardless of what the rules say.
     private func activeRules(coveringRestorePath path: String) -> (rules: [Rule], watchedRoot: String?) {
-        guard !paused, let folder = try? db.folderForPath(path), folder.enabled else { return ([], nil) }
-        let rules = (try? db.listRules(folderId: folder.id))?.filter(\.enabled) ?? []
-        return (rules, folder.path)
+        guard !paused else { return ([], nil) }
+        return db.withLock { db -> (rules: [Rule], watchedRoot: String?) in
+            guard let folder = try? db.folderForPath(path), folder.enabled else { return ([], nil) }
+            let rules = (try? db.listRules(folderId: folder.id))?.filter(\.enabled) ?? []
+            return (rules, folder.path)
+        }
     }
 
     /// Reverses `entry` only if `UndoChecker` finds it safe right now —
@@ -459,7 +468,7 @@ final class AppModel: ObservableObject {
         case .safe:
             do {
                 try ActionExecutor.revert(Undo.fromJSON(entry.undo))
-                try db.markHistoryUndone(entry.id)
+                try db.withLock { db in try db.markHistoryUndone(entry.id) }
                 reloadHistory()
             } catch {
                 showError(error)
@@ -474,7 +483,7 @@ final class AppModel: ObservableObject {
     /// another restore in the same batch — are left untouched and reported,
     /// rather than attempted.
     func undoBatch(_ batchId: String) {
-        let entries = (try? db.listHistoryBatch(batchId)) ?? []
+        let entries = db.withLock { db in (try? db.listHistoryBatch(batchId)) ?? [] }
         let reversible = entries.filter { $0.status == .applied && $0.reversible }
         let colliding = UndoChecker.collidingRestoreTargets(reversible)
 
@@ -491,7 +500,7 @@ final class AppModel: ObservableObject {
             case .safe:
                 do {
                     try ActionExecutor.revert(Undo.fromJSON(entry.undo))
-                    try db.markHistoryUndone(entry.id)
+                    try db.withLock { db in try db.markHistoryUndone(entry.id) }
                 } catch {
                     failures.append("\((entry.originalPath as NSString).lastPathComponent): \(error)")
                 }
@@ -506,8 +515,11 @@ final class AppModel: ObservableObject {
 
     func togglePaused() {
         paused.toggle()
-        try? db.setSetting("paused", paused ? "1" : "0")
-        let allFolders = (try? db.listFolders()) ?? []
+        let isPaused = paused
+        let allFolders = db.withLock { db -> [WatchedFolder] in
+            try? db.setSetting("paused", isPaused ? "1" : "0")
+            return (try? db.listFolders()) ?? []
+        }
         for folder in allFolders {
             if paused {
                 coordinator.remove(folder.path)
