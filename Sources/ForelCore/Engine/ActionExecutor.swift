@@ -137,6 +137,30 @@ public enum ShortcutInputMode: String, CaseIterable, Sendable {
     }
 }
 
+public enum SyncDirection: String, CaseIterable, Sendable {
+    case twoWay = "two_way"
+    case mirrorToTarget = "mirror_to_target"
+
+    public var label: String {
+        switch self {
+        case .twoWay: return "Two-way sync"
+        case .mirrorToTarget: return "Mirror to target"
+        }
+    }
+}
+
+public enum SyncDeletePolicy: String, CaseIterable, Sendable {
+    case moveToTrash = "move_to_trash"
+    case keepOtherSide = "keep_other_side"
+
+    public var label: String {
+        switch self {
+        case .moveToTrash: return "Move counterpart to Trash"
+        case .keepOtherSide: return "Keep counterpart"
+        }
+    }
+}
+
 public enum DryRunStatus: String, Codable, Equatable, Sendable {
     case wouldRun = "would_run"
     case wouldSkip = "would_skip"
@@ -178,13 +202,15 @@ public struct ActionPlan: Equatable, Sendable {
 public enum ActionExecutor {
     /// Executes the action on the file at `path`, returning the new path and an
     /// `Undo` describing how to reverse it.
-    public static func execute(_ action: Action, path: String) throws -> Applied {
+    public static func execute(_ action: Action, path: String, root: String? = nil) throws -> Applied {
         switch action.kind {
         case .moveToFolder:
             let destDir = try stringParam(action, ActionParam.destination, "MoveToFolder")
             return try moveIntoDir(path: path, destDir: destDir, resolution: conflictResolution(action))
         case .copyToFolder:
             return try copyToFolder(action, path: path)
+        case .syncFolders:
+            return try syncFolders(action, path: path, root: root)
         case .rename:
             return try renameFile(action, path: path)
         case .moveToTrash:
@@ -235,6 +261,28 @@ public enum ActionExecutor {
         let dest = try resolveDestination(naiveDest: naiveDest, dir: destDir, fileName: fileName, resolution: conflictResolution(action))
         try FileManager.default.copyItem(atPath: path, toPath: dest)
         return Applied(newPath: path, undo: .none, copiedPath: dest)
+    }
+
+    private static func syncFolders(_ action: Action, path: String, root: String?) throws -> Applied {
+        let sourceRoot = root ?? (path as NSString).deletingLastPathComponent
+        let syncTarget = try syncCounterpartPath(action, path: path, root: sourceRoot)
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+
+        if isDirectory.boolValue {
+            var targetIsDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: syncTarget, isDirectory: &targetIsDirectory), !targetIsDirectory.boolValue {
+                _ = try syncResolvedTarget(action, naiveTarget: syncTarget)
+            }
+            try FileManager.default.createDirectory(atPath: syncTarget, withIntermediateDirectories: true)
+            return Applied(newPath: path, undo: .none, copiedPath: syncTarget)
+        }
+
+        let target = try syncResolvedTarget(action, naiveTarget: syncTarget)
+        let parent = (target as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(atPath: path, toPath: target)
+        return Applied(newPath: path, undo: .none, copiedPath: target)
     }
 
     /// Resolves the actual path a move/copy should write to, given the
@@ -781,7 +829,7 @@ public enum ActionExecutor {
         try plan(action, path: path).description
     }
 
-    public static func plan(_ action: Action, path: String) throws -> ActionPlan {
+    public static func plan(_ action: Action, path: String, root: String? = nil) throws -> ActionPlan {
         let fileName = (path as NSString).lastPathComponent
 
         switch action.kind {
@@ -867,6 +915,42 @@ public enum ActionExecutor {
                 status: .wouldRun,
                 finalPath: path,
                 copiedPath: target,
+                isTerminal: false
+            )
+        case .syncFolders:
+            let sourceRoot = root ?? (path as NSString).deletingLastPathComponent
+            let naiveTarget = try syncCounterpartPath(action, path: path, root: sourceRoot)
+            let conflicts = FileManager.default.fileExists(atPath: naiveTarget)
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+
+            if normalizedPath(path) == normalizedPath(naiveTarget) {
+                return ActionPlan(
+                    kind: action.kind,
+                    description: "Already synced",
+                    sourcePath: path,
+                    targetPath: naiveTarget,
+                    status: .wouldSkip,
+                    finalPath: path,
+                    copiedPath: nil,
+                    isTerminal: false
+                )
+            }
+
+            let description: String
+            if isDirectory.boolValue {
+                description = conflicts ? "Sync folder at \(naiveTarget)" : "Create synced folder at \(naiveTarget)"
+            } else {
+                description = conflicts ? "Sync to \(naiveTarget), updating existing file" : "Sync to \(naiveTarget)"
+            }
+            return ActionPlan(
+                kind: action.kind,
+                description: description,
+                sourcePath: path,
+                targetPath: naiveTarget,
+                status: .wouldRun,
+                finalPath: path,
+                copiedPath: naiveTarget,
                 isTerminal: false
             )
         case .rename:
@@ -1046,9 +1130,46 @@ public enum ActionExecutor {
             let pattern = action.params[ActionParam.pattern]?.stringValue ?? ""
             guard let newName = try? applyRenamePattern(pattern, path: path) else { return true }
             return (path as NSString).lastPathComponent != newName
-        case .moveToFolder, .copyToFolder, .moveToTrash, .delete, .runScript, .runShortcut, .importToLibrary:
+        case .moveToFolder, .copyToFolder, .syncFolders, .moveToTrash, .delete, .runScript, .runShortcut, .importToLibrary:
             return true
         }
+    }
+
+    public static func syncDirection(_ action: Action) -> SyncDirection {
+        guard let raw = action.params[ActionParam.syncDirection]?.stringValue else { return .twoWay }
+        return SyncDirection(rawValue: raw) ?? .twoWay
+    }
+
+    public static func syncDeletePolicy(_ action: Action) -> SyncDeletePolicy {
+        guard let raw = action.params[ActionParam.syncDeletePolicy]?.stringValue else { return .moveToTrash }
+        return SyncDeletePolicy(rawValue: raw) ?? .moveToTrash
+    }
+
+    public static func syncCounterpartPath(_ action: Action, path: String, root: String) throws -> String {
+        let targetRoot = try stringParam(action, ActionParam.destination, "SyncFolders")
+        if syncDirection(action) == .twoWay, let relative = relativePath(root: targetRoot, path: path) {
+            return (root as NSString).appendingPathComponent(relative)
+        }
+        if let relative = relativePath(root: root, path: path) {
+            return (targetRoot as NSString).appendingPathComponent(relative)
+        }
+        throw ActionError("Sync folders can only sync files inside the watched folder or target folder")
+    }
+
+    private static func syncResolvedTarget(_ action: Action, naiveTarget: String) throws -> String {
+        let parent = (naiveTarget as NSString).deletingLastPathComponent
+        let fileName = (naiveTarget as NSString).lastPathComponent
+        return try resolveDestination(naiveDest: naiveTarget, dir: parent, fileName: fileName, resolution: .replace)
+    }
+
+    private static func relativePath(root: String, path: String) -> String? {
+        let rootComponents = (normalizedPath(root) as NSString).pathComponents
+        let pathComponents = (normalizedPath(path) as NSString).pathComponents
+        guard pathComponents.count >= rootComponents.count else { return nil }
+        guard Array(pathComponents.prefix(rootComponents.count)) == rootComponents else { return nil }
+        let suffix = pathComponents.dropFirst(rootComponents.count)
+        guard !suffix.isEmpty else { return "" }
+        return NSString.path(withComponents: Array(suffix))
     }
 
     private static func paramTags(_ action: Action) -> [String] {

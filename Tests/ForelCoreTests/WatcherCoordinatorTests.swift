@@ -181,4 +181,89 @@ import Foundation
         let numberedDuplicate = (pdfDir as NSString).appendingPathComponent("existing (1).pdf")
         #expect(!FileManager.default.fileExists(atPath: numberedDuplicate))
     }
+
+    @Test func syncFolderTargetChangeCopiesBackToWatchedRoot() throws {
+        let db = try makeDB()
+        let dir = TempDir()
+        let source = dir.dir("Source")
+        let target = dir.dir("Target")
+        let folder = WatchedFolder(path: source)
+        try db.insertFolder(folder)
+        var rule = makeRule(folderId: folder.id, name: "sync", recursionDepth: nil)
+        rule.actions = [makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(target),
+            ActionParam.syncDirection: .string(SyncDirection.twoWay.rawValue),
+        ]), position: 0, ruleId: rule.id)]
+        try db.insertRule(rule)
+
+        let file = (target as NSString).appendingPathComponent("a.txt")
+        try "target".write(toFile: file, atomically: true, encoding: .utf8)
+
+        let coordinator = WatcherCoordinator(db: db)
+        coordinator.handle(path: file, kind: .changed)
+
+        let copied = (source as NSString).appendingPathComponent("a.txt")
+        #expect(try String(contentsOfFile: copied, encoding: .utf8) == "target")
+        let history = try db.listHistory()
+        #expect(history.count == 1)
+        #expect(history[0].actionKind == .syncFolders)
+        #expect(history[0].status == .applied)
+    }
+
+    @Test func syncFolderDeletionMovesCounterpartToTrash() throws {
+        let db = try makeDB()
+        let dir = TempDir()
+        let source = dir.dir("Source")
+        let target = dir.dir("Target")
+        let folder = WatchedFolder(path: source)
+        try db.insertFolder(folder)
+        var rule = makeRule(folderId: folder.id, name: "sync", recursionDepth: nil)
+        rule.actions = [makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(target),
+            ActionParam.syncDirection: .string(SyncDirection.twoWay.rawValue),
+            ActionParam.syncDeletePolicy: .string(SyncDeletePolicy.moveToTrash.rawValue),
+        ]), position: 0, ruleId: rule.id)]
+        try db.insertRule(rule)
+
+        let deleted = (source as NSString).appendingPathComponent("a.txt")
+        let counterpart = (target as NSString).appendingPathComponent("a.txt")
+        try "other".write(toFile: counterpart, atomically: true, encoding: .utf8)
+
+        let coordinator = WatcherCoordinator(db: db)
+        coordinator.handle(path: deleted, kind: .deleted)
+
+        #expect(!FileManager.default.fileExists(atPath: counterpart))
+        let history = try db.listHistory()
+        #expect(history.count == 1)
+        #expect(history[0].actionKind == .syncFolders)
+        #expect(history[0].reversible)
+    }
+
+    @Test func syncFolderMissingChangedEventIsTreatedAsDeletion() throws {
+        let db = try makeDB()
+        let dir = TempDir()
+        let source = dir.dir("Source")
+        let target = dir.dir("Target")
+        let folder = WatchedFolder(path: source)
+        try db.insertFolder(folder)
+        var rule = makeRule(folderId: folder.id, name: "sync", recursionDepth: nil)
+        rule.actions = [makeAction(.syncFolders, .object([
+            ActionParam.destination: .string(target),
+            ActionParam.syncDirection: .string(SyncDirection.twoWay.rawValue),
+            ActionParam.syncDeletePolicy: .string(SyncDeletePolicy.moveToTrash.rawValue),
+        ]), position: 0, ruleId: rule.id)]
+        try db.insertRule(rule)
+
+        let deleted = (source as NSString).appendingPathComponent("a.txt")
+        let counterpart = (target as NSString).appendingPathComponent("a.txt")
+        try "other".write(toFile: counterpart, atomically: true, encoding: .utf8)
+
+        let coordinator = WatcherCoordinator(db: db)
+        coordinator.handle(path: deleted)
+
+        #expect(!FileManager.default.fileExists(atPath: counterpart))
+        let history = try db.listHistory()
+        #expect(history.count == 1)
+        #expect(history[0].actionKind == .syncFolders)
+    }
 }

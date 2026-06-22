@@ -304,6 +304,7 @@ final class AppModel: ObservableObject {
             } else {
                 try db.insertRule(rule)
             }
+            if !paused { coordinator.refreshWatchedPaths() }
             reloadRules()
         } catch {
             showError(error)
@@ -312,6 +313,7 @@ final class AppModel: ObservableObject {
 
     func deleteRule(_ rule: Rule) {
         try? db.deleteRule(rule.id)
+        if !paused { coordinator.refreshWatchedPaths() }
         reloadRules()
     }
 
@@ -489,14 +491,17 @@ final class AppModel: ObservableObject {
     func togglePaused() {
         paused.toggle()
         try? db.setSetting("paused", paused ? "1" : "0")
+        if paused {
+            coordinator.removeAll()
+            return
+        }
         let allFolders = (try? db.listFolders()) ?? []
         for folder in allFolders {
-            if paused {
-                coordinator.remove(folder.path)
-            } else if folder.enabled {
+            if folder.enabled {
                 coordinator.add(folder.path)
             }
         }
+        coordinator.refreshWatchedPaths()
     }
 
     private func showNotice(title: String, message: String) {
