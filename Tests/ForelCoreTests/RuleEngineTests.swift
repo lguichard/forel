@@ -110,6 +110,57 @@ import Foundation
         #expect(preview?.rules[0].actions.map(\.status) == [.wouldRun, .wouldRun])
     }
 
+    @Test func previewSyncFoldersUpdatesExistingCounterpartWithoutExecuting() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let targetRoot = dir.dir("Target")
+        let source = (sourceRoot as NSString).appendingPathComponent("note.txt")
+        let target = (targetRoot as NSString).appendingPathComponent("note.txt")
+        try "new".write(toFile: source, atomically: true, encoding: .utf8)
+        try "old".write(toFile: target, atomically: true, encoding: .utf8)
+        let rule = makeRule(
+            name: "sync",
+            actions: [makeAction(.syncFolders, .object([
+                ActionParam.destination: .string(targetRoot),
+                ActionParam.syncDirection: .string(SyncDirection.twoWay.rawValue),
+            ]))]
+        )
+
+        let preview = RuleEngine.previewFile(path: source, depth: 0, rules: [rule], root: sourceRoot)
+
+        #expect(preview?.rules[0].actions[0].kind == .syncFolders)
+        #expect(preview?.rules[0].actions[0].targetPath == target)
+        #expect(preview?.rules[0].actions[0].status == .wouldRun)
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "old")
+        #expect(!FileManager.default.fileExists(atPath: (targetRoot as NSString).appendingPathComponent("note (1).txt")))
+    }
+
+    @Test func runSyncFoldersUpdatesExistingCounterpartWithoutDuplicate() throws {
+        let dir = TempDir()
+        let sourceRoot = dir.dir("Source")
+        let targetRoot = dir.dir("Target")
+        let source = (sourceRoot as NSString).appendingPathComponent("note.txt")
+        let target = (targetRoot as NSString).appendingPathComponent("note.txt")
+        try "new".write(toFile: source, atomically: true, encoding: .utf8)
+        try "old".write(toFile: target, atomically: true, encoding: .utf8)
+        let rule = makeRule(
+            name: "sync",
+            actions: [makeAction(.syncFolders, .object([
+                ActionParam.destination: .string(targetRoot),
+                ActionParam.syncDirection: .string(SyncDirection.twoWay.rawValue),
+            ]))]
+        )
+
+        let result = RuleEngine.run(path: source, depth: 0, rules: [rule], batchId: "batch", root: sourceRoot)
+
+        #expect(result.history.count == 1)
+        #expect(result.history[0].actionKind == .syncFolders)
+        #expect(result.history[0].status == .applied)
+        #expect(result.history[0].resultPath == target)
+        #expect(try String(contentsOfFile: target, encoding: .utf8) == "new")
+        #expect(!FileManager.default.fileExists(atPath: (targetRoot as NSString).appendingPathComponent("note (1).txt")))
+    }
+
     @Test func previewFileShowsConditionResults() throws {
         let dir = TempDir()
         let file = dir.file("invoice.pdf", contents: "paid")

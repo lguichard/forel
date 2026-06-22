@@ -24,7 +24,12 @@ import Foundation
 /// with the updated set — same externally-visible behaviour as the old
 /// `WatcherCmd::Add`/`Remove` channel.
 public final class FileWatcher: @unchecked Sendable {
-    public typealias EventHandler = @Sendable (_ path: String) -> Void
+    public enum EventKind: Sendable {
+        case changed
+        case deleted
+    }
+
+    public typealias EventHandler = @Sendable (_ path: String, _ kind: EventKind) -> Void
 
     private var onEvent: EventHandler
     private let lock = NSLock()
@@ -53,6 +58,13 @@ public final class FileWatcher: @unchecked Sendable {
         let paths = watchedPaths
         lock.unlock()
         if inserted { rebuildStream(paths: paths) }
+    }
+
+    public func replaceAll(_ paths: Set<String>) {
+        lock.lock()
+        watchedPaths = paths
+        lock.unlock()
+        rebuildStream(paths: paths)
     }
 
     public func remove(_ path: String) {
@@ -113,11 +125,12 @@ public final class FileWatcher: @unchecked Sendable {
 
         for (index, path) in paths.enumerated() {
             let flag = flags[index]
+            let isDeleted = flag & UInt32(kFSEventStreamEventFlagItemRemoved) != 0
             let isCreateOrRename = flag & UInt32(kFSEventStreamEventFlagItemCreated) != 0
                 || flag & UInt32(kFSEventStreamEventFlagItemRenamed) != 0
-            guard isCreateOrRename else { continue }
+            guard isCreateOrRename || isDeleted else { continue }
             if SystemFileFilter.isExcluded((path as NSString).lastPathComponent) { continue }
-            handler(path)
+            handler(path, isDeleted ? .deleted : .changed)
         }
     }
 }
