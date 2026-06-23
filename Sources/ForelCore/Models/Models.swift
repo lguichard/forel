@@ -278,3 +278,19 @@ public struct HistoryEntry: Codable, Equatable, Sendable {
         self.createdAt = createdAt
     }
 }
+
+/// Success ("applied"/"undone") vs. failed run counts for one rule over a
+/// time window, used by the rule list and the menu-bar quick panel.
+public struct RuleRunStats: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var ruleName: String
+    public var successCount: Int
+    public var failedCount: Int
+
+    public init(id: String, ruleName: String, successCount: Int, failedCount: Int) {
+        self.id = id
+        self.ruleName = ruleName
+        self.successCount = successCount
+        self.failedCount = failedCount
+    }
+}

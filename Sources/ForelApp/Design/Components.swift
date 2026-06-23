@@ -198,6 +198,7 @@ struct StatTile: View {
     let icon: String
     let label: String
     let value: String
+    var tint: Color = ForelTheme.primaryText
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -205,7 +206,7 @@ struct StatTile: View {
                 Image(systemName: icon).font(.system(size: 10)).foregroundStyle(ForelTheme.secondaryText)
                 Text(label).font(.system(size: 11)).foregroundStyle(ForelTheme.secondaryText)
             }
-            Text(value).font(.system(size: 18, weight: .bold)).foregroundStyle(ForelTheme.primaryText)
+            Text(value).font(.system(size: 18, weight: .bold)).foregroundStyle(tint)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -284,6 +285,30 @@ struct SettingsActionRow: View {
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
+    }
+}
+
+/// Bordered pill footer action sized to fill equally with its siblings, used
+/// by the menu-bar quick panel — mirrors how native macOS widgets (Control
+/// Center, the Notification Center weather widget) lay out footer actions.
+struct QuickPanelFooterButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage).font(.system(size: 10, weight: .medium))
+                Text(title).font(.system(size: 11, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(ForelTheme.primaryText)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ForelTheme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(ForelTheme.surfaceBorder))
     }
 }
 

@@ -40,6 +40,45 @@ import Foundation
         #expect(history.isEmpty)
     }
 
+    @Test func runIgnoresIncompleteBrowserDownloadsEvenWhenRuleWouldMatch() throws {
+        let dir = TempDir()
+        let file = dir.file("report.pdf.crdownload", contents: "")
+        try setQuarantineAgent(file, agent: "Google Chrome")
+        let destination = dir.dir("Documents")
+        let rule = makeRule(
+            name: "chrome downloads",
+            conditions: [makeCondition(.downloadedWithApp, .is, "Google Chrome")],
+            actions: [makeAction(.moveToFolder, .object(["destination": .string(destination)]))]
+        )
+
+        let (matched, history) = RuleEngine.run(path: file, depth: 0, rules: [rule], batchId: "batch")
+
+        #expect(matched.isEmpty)
+        #expect(history.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: file))
+        #expect(!FileManager.default.fileExists(atPath: (destination as NSString).appendingPathComponent("report.pdf.crdownload")))
+    }
+
+    @Test func previewFileIgnoresIncompleteBrowserDownloadsEvenWhenRuleWouldMatch() throws {
+        let dir = TempDir()
+        let file = dir.file("report.pdf.crdownload", contents: "")
+        try setQuarantineAgent(file, agent: "Google Chrome")
+        let rule = makeRule(
+            name: "chrome downloads",
+            conditions: [makeCondition(.downloadedWithApp, .is, "Google Chrome")]
+        )
+
+        #expect(RuleEngine.previewFile(path: file, depth: 0, rules: [rule]) == nil)
+    }
+
+    @Test func walkEntriesSkipsIncompleteBrowserDownloadsForFolderRuns() throws {
+        let dir = TempDir()
+        _ = dir.file("report.pdf.crdownload", contents: "")
+        let finished = dir.file("report.pdf", contents: "done")
+
+        #expect(RuleEngine.walkEntries(root: dir.path, maxDepth: 0).map(\.path) == [finished])
+    }
+
     @Test func conditionOrderDoesNotChangeAllOrAnyMatching() throws {
         // `ruleMatches` evaluates cheap conditions before `contents` and
         // short-circuits. Reordering must not change the boolean outcome, so a

@@ -321,6 +321,50 @@ import SQLite3
         #expect(filtered.map(\.id) == ["newer", "older"])
     }
 
+    @Test func ruleRunStatsCountsSuccessAndFailedWithinWindowPerRule() throws {
+        let db = try makeDB()
+        let now = ISO8601DateFormatter.forelUTC.string(from: Date())
+        let tooOld = ISO8601DateFormatter.forelUTC.string(from: Date().addingTimeInterval(-40 * 86400))
+        let entries = [
+            HistoryEntry(
+                batchId: "b1", ruleId: "rule-a", ruleName: "Archive PDFs", actionKind: .moveToFolder,
+                originalPath: "/a1", resultPath: "/a1-out", undo: .object(["kind": .string("none")]),
+                reversible: true, status: .applied, createdAt: now
+            ),
+            HistoryEntry(
+                batchId: "b1", ruleId: "rule-a", ruleName: "Archive PDFs", actionKind: .moveToFolder,
+                originalPath: "/a2", resultPath: "/a2-out", undo: .object(["kind": .string("none")]),
+                reversible: true, status: .undone, createdAt: now
+            ),
+            HistoryEntry(
+                batchId: "b1", ruleId: "rule-a", ruleName: "Archive PDFs", actionKind: .moveToFolder,
+                originalPath: "/a3", resultPath: "/a3-out", undo: .object(["kind": .string("none")]),
+                reversible: false, status: .failed, createdAt: now
+            ),
+            HistoryEntry(
+                batchId: "b2", ruleId: "rule-b", ruleName: "Run Script", actionKind: .runScript,
+                originalPath: "/b1", resultPath: "/b1", undo: .object(["kind": .string("none")]),
+                reversible: false, status: .failed, createdAt: now
+            ),
+            // Older than the 30-day window: must not be counted.
+            HistoryEntry(
+                batchId: "b3", ruleId: "rule-a", ruleName: "Archive PDFs", actionKind: .moveToFolder,
+                originalPath: "/old", resultPath: "/old-out", undo: .object(["kind": .string("none")]),
+                reversible: true, status: .applied, createdAt: tooOld
+            ),
+        ]
+        try db.insertHistoryEntries(entries)
+
+        let stats = try db.ruleRunStats(sinceDays: 30).sorted { $0.ruleName < $1.ruleName }
+        #expect(stats.count == 2)
+        #expect(stats[0].ruleName == "Archive PDFs")
+        #expect(stats[0].successCount == 2)
+        #expect(stats[0].failedCount == 1)
+        #expect(stats[1].ruleName == "Run Script")
+        #expect(stats[1].successCount == 0)
+        #expect(stats[1].failedCount == 1)
+    }
+
     @Test func migrationRejectsNewerSchemaVersions() throws {
         let path = NSTemporaryDirectory().appending("forel-db-test-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(atPath: path) }

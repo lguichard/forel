@@ -19,9 +19,9 @@ import SwiftUI
 import ForelCore
 
 /// The menu-bar quick panel: header with status badge, a "Watching" master
-/// switch, watched-folder toggles, and an activity summary — styled after
-/// Vorssaint's dark glass popover. Deep editing (rules, conditions, actions)
-/// stays in the main window; this is the glanceable surface.
+/// switch, watched-folder toggles, and an activity summary. Deep editing
+/// (rules, conditions, actions) stays in the main window; this is the
+/// glanceable surface.
 struct QuickPanelView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var updater: UpdaterManager
@@ -30,12 +30,15 @@ struct QuickPanelView: View {
 
     var body: some View {
         ZStack {
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+            // `.popover` (unlike `.hudWindow`) follows the system/app
+            // appearance instead of always rendering dark, so the panel
+            // stays legible in Light mode.
+            VisualEffectBlur(material: .popover, blendingMode: .behindWindow)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.black.opacity(0.18))
+                .fill(ForelTheme.background.opacity(0.55))
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                .strokeBorder(ForelTheme.surfaceBorder, lineWidth: 1)
 
             VStack(alignment: .leading, spacing: 14) {
                 header
@@ -51,7 +54,7 @@ struct QuickPanelView: View {
                 GlassCard {
                     ToggleRow(
                         title: "Watching",
-                        subtitle: model.paused ? "Paused — new files are ignored" : "Rules run automatically on new files",
+                        subtitle: model.paused ? "Paused — new files are ignored" : "Watching folders — rules run automatically",
                         isOn: watchingBinding
                     )
                 }
@@ -77,26 +80,31 @@ struct QuickPanelView: View {
                     StatTile(icon: "clock.arrow.circlepath", label: "History", value: "\(model.historyTotalCount)")
                 }
 
+                SectionLabel(title: "Last 30 Days")
+                HStack(spacing: 10) {
+                    StatTile(
+                        icon: "checkmark.circle.fill",
+                        label: "Success",
+                        value: "\(model.totalSuccessCount30d)",
+                        tint: ForelTheme.success
+                    )
+                    StatTile(
+                        icon: "xmark.circle.fill",
+                        label: "Failed",
+                        value: "\(model.totalFailedCount30d)",
+                        tint: model.totalFailedCount30d > 0 ? ForelTheme.danger : ForelTheme.secondaryText
+                    )
+                }
+
                 Divider().overlay(ForelTheme.divider)
 
-                HStack {
-                    FooterLink(title: "Open Forel", systemImage: "arrow.up.forward.app", action: onOpenMainWindow)
-                    Spacer()
-                    FooterLink(title: "Settings", systemImage: "gearshape") {
+                HStack(spacing: 8) {
+                    QuickPanelFooterButton(title: "Open Forel", systemImage: "arrow.up.forward.app", action: onOpenMainWindow)
+                    QuickPanelFooterButton(title: "Settings", systemImage: "gearshape") {
                         model.detailRoute = .settings
                         onOpenMainWindow()
                     }
-                    Spacer()
-                    FooterLink(title: "Quit", systemImage: "power", action: onQuit)
-                    Spacer()
-                    Button {
-                        NSWorkspace.shared.open(URL(string: "https://buymeacoffee.com/lionelguic9")!)
-                    } label: {
-                        Image(systemName: "cup.and.saucer.fill").font(.system(size: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(ForelTheme.secondaryText)
-                    .help("Buy me a coffee")
+                    QuickPanelFooterButton(title: "Quit", systemImage: "power", action: onQuit)
                 }
             }
             .padding(.horizontal, 12)
@@ -112,8 +120,15 @@ struct QuickPanelView: View {
     }
 
     private var header: some View {
-        ViewHeader(title: "Forel", subtitle: "File automation") {
-            StatusBadge(active: !model.paused)
+        HStack(alignment: .top, spacing: 12) {
+            BrandMark(size: 38)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Forel")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(ForelTheme.primaryText)
+                StatusBadge(active: !model.paused)
+            }
+            Spacer(minLength: 0)
         }
     }
 

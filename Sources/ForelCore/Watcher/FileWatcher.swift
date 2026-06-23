@@ -18,8 +18,9 @@ import CoreServices
 import Foundation
 
 /// Native FSEvents-based replacement for the Rust `notify` watcher. Watches a
-/// dynamic set of folder paths recursively and reports newly created or
-/// renamed/moved file paths. The underlying `FSEventStream` cannot have its
+/// dynamic set of folder paths recursively and reports newly arrived file paths:
+/// paths created in, renamed inside, or moved into a watched folder. The
+/// underlying `FSEventStream` cannot have its
 /// path set mutated in place, so adding/removing a folder recreates the stream
 /// with the updated set — same externally-visible behaviour as the old
 /// `WatcherCmd::Add`/`Remove` channel.
@@ -106,17 +107,29 @@ public final class FileWatcher: @unchecked Sendable {
         FSEventStreamRelease(current)
     }
 
+    /// Forel's automatic watcher is arrival-oriented: it starts rules when a
+    /// path appears in the watched tree, not every time an existing file is
+    /// edited. Duplicate/coalesced create/rename events are handled downstream
+    /// by `WatcherCoordinator`'s fingerprint cache.
+    ///
+    /// Do not add `ItemModified`/`ItemXattrMod` here casually. Those would make
+    /// Forel re-evaluate existing files whenever content, tags, labels, or
+    /// download metadata change, which is a broader product behavior than
+    /// "run rules for newly arrived files".
+    static func shouldReportEvent(path: String, flags: FSEventStreamEventFlags) -> Bool {
+        let isArrival = flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0
+            || flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0
+        guard isArrival else { return false }
+        return !SystemFileFilter.isExcluded((path as NSString).lastPathComponent)
+    }
+
     fileprivate func handleEvents(paths: [String], flags: [FSEventStreamEventFlags]) {
         lock.lock()
         let handler = onEvent
         lock.unlock()
 
         for (index, path) in paths.enumerated() {
-            let flag = flags[index]
-            let isCreateOrRename = flag & UInt32(kFSEventStreamEventFlagItemCreated) != 0
-                || flag & UInt32(kFSEventStreamEventFlagItemRenamed) != 0
-            guard isCreateOrRename else { continue }
-            if SystemFileFilter.isExcluded((path as NSString).lastPathComponent) { continue }
+            guard Self.shouldReportEvent(path: path, flags: flags[index]) else { continue }
             handler(path)
         }
     }

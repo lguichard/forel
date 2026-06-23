@@ -313,6 +313,34 @@ public final class Database: @unchecked Sendable {
         try stmt.runToCompletion()
     }
 
+    /// Success ("applied"/"undone") vs. failed counts per rule over the last
+    /// `days` days, for the rule list's badges and the menu-bar quick panel.
+    public func ruleRunStats(sinceDays days: Int) throws -> [RuleRunStats] {
+        let cutoff = ISO8601DateFormatter.forelUTC.string(from: Date().addingTimeInterval(-Double(days) * 86400))
+        let stmt = try statement(
+            """
+            SELECT COALESCE(rule_id, '~' || rule_name) AS rule_key, rule_name,
+                SUM(CASE WHEN status IN ('applied', 'undone') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)
+            FROM action_history
+            WHERE datetime(created_at) >= datetime(?1)
+            GROUP BY rule_key
+            ORDER BY rule_name COLLATE NOCASE
+            """
+        )
+        stmt.bind(1, cutoff)
+        var stats: [RuleRunStats] = []
+        while try stmt.step() {
+            stats.append(RuleRunStats(
+                id: stmt.columnText(0),
+                ruleName: stmt.columnText(1),
+                successCount: Int(stmt.columnInt64(2)),
+                failedCount: Int(stmt.columnInt64(3))
+            ))
+        }
+        return stats
+    }
+
     private static func historyDirectoryFilter(_ directoryPath: String?) -> (String, [String]) {
         guard let directoryPath else { return ("", []) }
         let path = (directoryPath as NSString).standardizingPath

@@ -252,9 +252,15 @@ private struct RuleCard: View {
                         HStack(spacing: 6) {
                             metaPill(icon: "line.3.horizontal.decrease.circle", text: "\(rule.conditions.count)")
                             metaPill(icon: "bolt.fill", text: "\(rule.actions.count)")
-                            Text(rule.conditionMatch == .all ? "match all" : "match any")
-                                .font(.system(size: 10))
-                                .foregroundStyle(ForelTheme.secondaryText)
+                            if let stats = model.runStats(for: rule) {
+                                let totalRuns = stats.successCount + stats.failedCount
+                                if totalRuns > 0 {
+                                    Text("\(totalRuns) run\(totalRuns == 1 ? "" : "s") (30d)")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(ForelTheme.secondaryText)
+                                        .help("Last 30 days: \(stats.successCount) successful, \(stats.failedCount) failed")
+                                }
+                            }
                         }
                     }
                 }
@@ -302,6 +308,7 @@ private struct RuleCard: View {
         }
         .foregroundStyle(ForelTheme.secondaryText)
     }
+
 
     private var enabledBinding: Binding<Bool> {
         Binding(get: { rule.enabled }, set: { model.toggleRule(rule, enabled: $0) })

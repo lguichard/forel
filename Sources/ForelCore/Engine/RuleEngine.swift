@@ -110,6 +110,10 @@ public enum RuleEngine {
     /// first, then acting on it — so Dry Run, Run Now, and the watcher can
     /// never see a different outcome for the same file and rules.
     public static func run(path: String, depth: Int, rules: [Rule], batchId: String, root: String? = nil) -> (matched: [String], history: [HistoryEntry]) {
+        guard !SystemFileFilter.isExcluded((path as NSString).lastPathComponent) else {
+            return ([], [])
+        }
+
         struct PendingFile {
             let path: String
             let depth: Int
@@ -177,6 +181,10 @@ public enum RuleEngine {
     }
 
     public static func previewFile(path: String, depth: Int, rules: [Rule]) -> FilePreview? {
+        guard !SystemFileFilter.isExcluded((path as NSString).lastPathComponent) else {
+            return nil
+        }
+
         struct PendingFile {
             let path: String
             let depth: Int

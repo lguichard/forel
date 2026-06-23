@@ -24,9 +24,26 @@ import Testing
         #expect(SystemFileFilter.isExcluded("~$budget.docx")) // Office lock file
     }
 
+    @Test func excludesIncompleteBrowserDownloads() {
+        #expect(SystemFileFilter.isExcluded("report.pdf.crdownload"))
+        #expect(SystemFileFilter.isExcluded("Unconfirmed 123456.crdownload"))
+        #expect(SystemFileFilter.isExcluded("Archive.ZIP.CRDOWNLOAD"))
+        #expect(SystemFileFilter.isExcluded("video.mp4.download"))
+        #expect(SystemFileFilter.isExcluded("installer.dmg.part"))
+        #expect(SystemFileFilter.isExcluded("archive.zip.opdownload"))
+        #expect(SystemFileFilter.isExcluded("dataset.tar.aria2"))
+        #expect(SystemFileFilter.isExcluded(".com.google.Chrome.4kwGYJ"))
+        #expect(SystemFileFilter.isExcluded(".com.microsoft.edgemac.QjS9aV"))
+        #expect(SystemFileFilter.isExcluded(".com.brave.Browser.QjS9aV"))
+        #expect(SystemFileFilter.isExcluded(".com.vivaldi.Vivaldi.QjS9aV"))
+        #expect(SystemFileFilter.isExcluded(".com.operasoftware.Opera.QjS9aV"))
+        #expect(SystemFileFilter.isExcluded(".org.chromium.Chromium.QjS9aV"))
+    }
+
     @Test func doesNotExcludeRegularFiles() {
         #expect(!SystemFileFilter.isExcluded("report.pdf"))
         #expect(!SystemFileFilter.isExcluded("budget.docx"))
         #expect(!SystemFileFilter.isExcluded("invoice_march_2026.pdf"))
+        #expect(!SystemFileFilter.isExcluded("downloaded-report.pdf"))
     }
 }

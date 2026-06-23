@@ -8,9 +8,15 @@ All notable changes to Forel are documented here. Format loosely follows
 ### Added
 - Added an Uncompress action for ZIP archives, with conflict handling and action chaining on the extracted item.
 - Added expandable rule cards that show each rule's conditions and actions directly in the rule list.
+- Each rule now shows its run count from the last 30 days, hidden when there's nothing to show, and the menu bar quick panel has a "Last 30 Days" section with success and failed totals across all rules.
 
 ### Changed
 - Dry Run now shows each matched file's full path beneath its name.
+- Refreshed the menu bar quick panel with a cleaner header, bordered footer buttons, and a background that now properly adapts to Light mode instead of always looking dark and hard to read.
+
+### Fixed
+- Fixed incomplete browser downloads from Safari, Chrome, Firefox, and other common downloaders being treated as ready documents and moved before the download finished.
+- Fixed a crash that could happen when dropping a large batch of files into a watched folder while the app window was also active (e.g. running Run Now, switching folders) — all database access from the app now goes through the same lock the watcher already used.
 
 ## [1.0.1] - 2026-06-22
 
