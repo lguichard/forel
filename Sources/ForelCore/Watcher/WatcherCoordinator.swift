@@ -23,6 +23,8 @@ import Foundation
 public final class WatcherCoordinator: @unchecked Sendable {
     private let db: Database
     private let watcher: FileWatcher
+    private let activeProcessingLock = NSLock()
+    private var activeProcessingRoots: [String: Int] = [:]
     public var onRuleMatched: (@Sendable (String, String) -> Void)?
 
     public init(db: Database) {
@@ -37,6 +39,12 @@ public final class WatcherCoordinator: @unchecked Sendable {
 
     public func add(_ path: String) { watcher.add(path) }
     public func remove(_ path: String) { watcher.remove(path) }
+
+    public func isProcessing(in root: String) -> Bool {
+        activeProcessingLock.lock()
+        defer { activeProcessingLock.unlock() }
+        return activeProcessingRoots[root, default: 0] > 0
+    }
 
     func handle(path: String) {
         // A duplicate/coalesced FSEvent for a path a prior call already
@@ -53,6 +61,9 @@ public final class WatcherCoordinator: @unchecked Sendable {
             return (folder, rules)
         }) else { return }
 
+        beginProcessing(root: folder.path)
+        defer { endProcessing(root: folder.path) }
+
         guard let depth = RuleEngine.pathDepth(root: folder.path, path: path) else { return }
         let batchId = UUID().uuidString
         let (matched, history) = RuleEngine.run(path: path, depth: depth, rules: rules, batchId: batchId, root: folder.path)
@@ -66,6 +77,23 @@ public final class WatcherCoordinator: @unchecked Sendable {
             recordEvaluatedResultStates(history)
         }
         recordEvaluatedState(path)
+    }
+
+    private func beginProcessing(root: String) {
+        activeProcessingLock.lock()
+        activeProcessingRoots[root, default: 0] += 1
+        activeProcessingLock.unlock()
+    }
+
+    private func endProcessing(root: String) {
+        activeProcessingLock.lock()
+        let count = activeProcessingRoots[root, default: 0]
+        if count <= 1 {
+            activeProcessingRoots[root] = nil
+        } else {
+            activeProcessingRoots[root] = count - 1
+        }
+        activeProcessingLock.unlock()
     }
 
     /// Whether `path` looks different from the last time the watcher fully

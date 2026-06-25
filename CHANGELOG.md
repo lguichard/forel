@@ -6,6 +6,7 @@ All notable changes to Forel are documented here. Format loosely follows
 ## [1.0.2] - 2026-06-22
 
 ### Added
+- Added the ability to change the path of an existing watched folder while keeping its rules.
 - Added expandable rule cards that show each rule's conditions and actions directly in the rule list.
 - Each rule now shows its run count from the last 30 days, hidden when there's nothing to show, and the menu bar quick panel has a "Last 30 Days" section with success and failed totals across all rules.
 

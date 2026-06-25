@@ -326,6 +326,55 @@ final class AppModel: ObservableObject {
         reloadFolders()
     }
 
+    func updateFolderPath(_ folder: WatchedFolder, path: String) {
+        guard !isRunningNow && !isPreviewing else {
+            showNotice(
+                title: "Folder is busy",
+                message: "Wait for the current Run Now or Dry Run to finish before changing this watched folder."
+            )
+            return
+        }
+        guard !coordinator.isProcessing(in: folder.path) else {
+            showNotice(
+                title: "Folder is busy",
+                message: "Forel is still processing a file event in this watched folder. Try again once it finishes."
+            )
+            return
+        }
+
+        let normalizedPath = (path as NSString).standardizingPath
+        let oldPath = (folder.path as NSString).standardizingPath
+        guard normalizedPath != oldPath else { return }
+
+        if let existingFolder = folders.first(where: { existing in
+            existing.id != folder.id && (existing.path as NSString).standardizingPath == normalizedPath
+        }) {
+            selectedFolderId = existingFolder.id
+            detailRoute = .rules
+            reloadRules()
+            showNotice(
+                title: "Folder already watched",
+                message: "\"\((existingFolder.path as NSString).lastPathComponent)\" is already in your watched folders."
+            )
+            return
+        }
+
+        do {
+            try db.withLock { db in try db.updateFolderPath(folder.id, path: normalizedPath) }
+            if folder.enabled, !paused {
+                coordinator.remove(folder.path)
+                coordinator.add(normalizedPath)
+            }
+            reloadFolders()
+            reloadRules()
+            if historyFolderFilterId == folder.id {
+                reloadHistory()
+            }
+        } catch {
+            showError(error)
+        }
+    }
+
     func toggleFolder(_ folder: WatchedFolder, enabled: Bool) {
         db.withLock { db in try? db.toggleFolder(folder.id, enabled: enabled) }
         if enabled, !paused {

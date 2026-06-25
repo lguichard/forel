@@ -161,6 +161,41 @@ import SQLite3
         }
     }
 
+    @Test func updateFolderPathPreservesFolderRulesAndOrder() throws {
+        let db = try makeDB()
+        let first = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-first")
+        let second = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-second")
+        try db.insertFolder(first)
+        try db.insertFolder(second)
+        try db.insertRule(makeRule(folderId: first.id, name: "kept rule"))
+
+        let updatedPath = "/tmp/forel-test-\(UUID().uuidString)-updated"
+        try db.updateFolderPath(first.id, path: updatedPath)
+
+        let folders = try db.listFolders()
+        #expect(folders.map(\.id) == [first.id, second.id])
+        #expect(folders.map(\.path) == [updatedPath, second.path])
+        #expect(folders.map(\.priority) == [0, 1])
+
+        let rules = try db.listRules(folderId: first.id)
+        #expect(rules.map(\.name) == ["kept rule"])
+    }
+
+    @Test func updateFolderPathRejectsDuplicatePath() throws {
+        let db = try makeDB()
+        let first = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-first")
+        let second = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)-second")
+        try db.insertFolder(first)
+        try db.insertFolder(second)
+
+        #expect(throws: (any Error).self) {
+            try db.updateFolderPath(first.id, path: second.path)
+        }
+
+        let folders = try db.listFolders()
+        #expect(folders.map(\.path) == [first.path, second.path])
+    }
+
     @Test func insertRuleAppendsToFolderOrder() throws {
         let db = try makeDB()
         let folder = WatchedFolder(path: "/tmp/forel-test-\(UUID().uuidString)")
