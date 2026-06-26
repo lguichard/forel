@@ -190,6 +190,7 @@ History / Undo (SQLite)
 - [x] Rules based metadata files
 - [x] Activity logs
 - [x] Automatic cleaning database
+- [x] Uncompress actions
 - [ ] Archive / Unarchive actions
 - [ ] Compress actions
 - [ ] Sync actions
