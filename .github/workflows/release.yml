@@ -39,10 +39,14 @@ jobs:
 
       - name: Build and package
         id: package
+        env:
+          RELEASE_ARCH: ${{ matrix.arch }}
+          RELEASE_SUFFIX: ${{ matrix.suffix }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          ./build.sh package ${{ matrix.arch }} ${{ github.ref_name }}
-          echo "dmg_path=dist/release/Forel-${{ github.ref_name }}-${{ matrix.suffix }}.dmg" >> "$GITHUB_OUTPUT"
+          ./build.sh package "$RELEASE_ARCH" "$RELEASE_TAG"
+          echo "dmg_path=dist/release/Forel-${RELEASE_TAG}-${RELEASE_SUFFIX}.dmg" >> "$GITHUB_OUTPUT"
 
       - name: Upload release artifact (${{ matrix.suffix }})
         uses: actions/upload-artifact@v4
@@ -66,6 +70,8 @@ jobs:
 
       - name: Release notes from CHANGELOG
         id: notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -80,13 +86,13 @@ jobs:
           fi
           {
             echo "BODY<<__FOREL_EOF__"
-            echo "## Forel ${{ github.ref_name }}"
+            echo "## Forel $RELEASE_TAG"
             echo ""
             printf '%s\n' "$NOTES"
             echo ""
             echo "Two builds available. Download the one that matches your Mac:"
-            echo "- \`Forel-${{ github.ref_name }}-darwin-arm64.dmg\` Apple Silicon (M1 / M2 / M3 / M4)"
-            echo "- \`Forel-${{ github.ref_name }}-darwin-x86_64.dmg\` for Intel"
+            echo "- \`Forel-${RELEASE_TAG}-darwin-arm64.dmg\` Apple Silicon (M1 / M2 / M3 / M4)"
+            echo "- \`Forel-${RELEASE_TAG}-darwin-x86_64.dmg\` for Intel"
             echo ""
             echo "Requires **macOS 14 Sonoma or later**."
             echo ""

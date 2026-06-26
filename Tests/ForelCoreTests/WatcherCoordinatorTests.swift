@@ -44,6 +44,39 @@ import Foundation
         #expect(try db.listHistory().count == 1)
     }
 
+    @Test func processingStateIsSetWhileWatcherEventRuns() throws {
+        let db = try makeDB()
+        let dir = TempDir()
+        let file = dir.file("a.txt")
+        let folder = WatchedFolder(path: dir.path)
+        try db.insertFolder(folder)
+
+        var rule = makeRule(folderId: folder.id, name: "matching rule")
+        rule.conditions = [makeCondition(.extension_, .is, "txt", ruleId: rule.id)]
+        try db.insertRule(rule)
+
+        let coordinator = WatcherCoordinator(db: db)
+        let callbackStarted = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        coordinator.onRuleMatched = { _, _ in
+            callbackStarted.signal()
+            _ = releaseCallback.wait(timeout: .now() + 2)
+        }
+
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            coordinator.handle(path: file)
+            finished.signal()
+        }
+
+        #expect(callbackStarted.wait(timeout: .now() + 2) == .success)
+        #expect(coordinator.isProcessing(in: dir.path))
+
+        releaseCallback.signal()
+        #expect(finished.wait(timeout: .now() + 2) == .success)
+        #expect(!coordinator.isProcessing(in: dir.path))
+    }
+
     /// The bug this whole table exists to fix: `copyToFolder` never moves
     /// its source out of scope, so repeated/duplicate FSEvents for the same
     /// untouched file used to keep re-copying — piling up Activity entries

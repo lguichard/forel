@@ -426,6 +426,13 @@ public final class Database: @unchecked Sendable {
         try stmt.runToCompletion()
     }
 
+    public func updateFolderPath(_ id: String, path: String) throws {
+        let stmt = try statement("UPDATE watched_folders SET path=?1 WHERE id=?2")
+        stmt.bind(1, path)
+        stmt.bind(2, id)
+        try stmt.runToCompletion()
+    }
+
     public func toggleFolder(_ id: String, enabled: Bool) throws {
         let stmt = try statement("UPDATE watched_folders SET enabled=?1 WHERE id=?2")
         stmt.bind(1, bool: enabled)

@@ -3,9 +3,10 @@
 All notable changes to Forel are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.0.2] - 2026-06-22
 
 ### Added
+- Added the ability to change the path of an existing watched folder while keeping its rules.
 - Added expandable rule cards that show each rule's conditions and actions directly in the rule list.
 - Each rule now shows its run count from the last 30 days, hidden when there's nothing to show, and the menu bar quick panel has a "Last 30 Days" section with success and failed totals across all rules.
 
@@ -14,9 +15,11 @@ All notable changes to Forel are documented here. Format loosely follows
 - Refreshed the menu bar quick panel with a cleaner header, bordered footer buttons, and a background that now properly adapts to Light mode instead of always looking dark and hard to read.
 
 ### Fixed
+- Fixed expanded/collapsed rule cards resetting after restarting the app.
 - Fixed incomplete browser downloads from Safari, Chrome, Firefox, and other common downloaders being treated as ready documents and moved before the download finished.
 - Fixed the automatic watcher potentially missing files when macOS reports dropped filesystem events by rescanning the affected folder while still skipping unchanged files.
 - Fixed a crash that could happen when dropping a large batch of files into a watched folder while the app window was also active (e.g. running Run Now, switching folders) — all database access from the app now goes through the same lock the watcher already used.
+- Fixed the app icon appearing off-center and larger than other apps' icons in the Dock and Cmd-Tab switcher.
 
 ## [1.0.1] - 2026-06-22
 
