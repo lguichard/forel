@@ -21,8 +21,6 @@ import ForelCore
 struct RuleListView: View {
     @EnvironmentObject var model: AppModel
     @State private var editingRule: Rule?
-    @State private var collapsedRuleIds: Set<String> = []
-    @State private var expandedDisabledRuleIds: Set<String> = []
 
     private var selectedFolder: WatchedFolder? {
         model.folders.first { $0.id == model.selectedFolderId }
@@ -58,8 +56,8 @@ struct RuleListView: View {
                         RuleCard(
                             rule: rule,
                             order: index + 1,
-                            isExpanded: isExpanded(rule),
-                            onToggleExpanded: { toggleExpanded(rule) },
+                            isExpanded: model.isRuleExpanded(rule),
+                            onToggleExpanded: { model.toggleRuleExpanded(rule) },
                             onEdit: { editingRule = rule }
                         )
                             .listRowBackground(Color.clear)
@@ -94,26 +92,6 @@ struct RuleListView: View {
         var ids = model.rules.map(\.id)
         ids.move(fromOffsets: source, toOffset: destination)
         model.reorderRules(ids)
-    }
-
-    private func isExpanded(_ rule: Rule) -> Bool {
-        rule.enabled ? !collapsedRuleIds.contains(rule.id) : expandedDisabledRuleIds.contains(rule.id)
-    }
-
-    private func toggleExpanded(_ rule: Rule) {
-        if rule.enabled {
-            if collapsedRuleIds.contains(rule.id) {
-                collapsedRuleIds.remove(rule.id)
-            } else {
-                collapsedRuleIds.insert(rule.id)
-            }
-        } else {
-            if expandedDisabledRuleIds.contains(rule.id) {
-                expandedDisabledRuleIds.remove(rule.id)
-            } else {
-                expandedDisabledRuleIds.insert(rule.id)
-            }
-        }
     }
 
     private var header: some View {

@@ -171,6 +171,7 @@ struct SidebarView: View {
             model.reloadRules()
         }
         .contextMenu {
+            Button("Change path of folder…") { changeFolder(folder) }
             Button("Remove", role: .destructive) { model.removeFolder(folder) }
         }
     }
@@ -202,6 +203,12 @@ struct SidebarView: View {
     private func addFolder() {
         if let path = FolderPicker.choose() {
             model.addFolder(path: path)
+        }
+    }
+
+    private func changeFolder(_ folder: WatchedFolder) {
+        if let path = FolderPicker.choose(startingAt: folder.path) {
+            model.updateFolderPath(folder, path: path)
         }
     }
 }

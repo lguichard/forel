@@ -56,6 +56,7 @@ final class AppModel: ObservableObject {
     private var runNowMessageId: UUID?
     @Published private(set) var isPreviewing = false
     @Published var previewResult: PreviewResult?
+    @Published private var ruleExpansionPreferences = RuleExpansionPreferences()
 
     let db: Database
     private let coordinator: WatcherCoordinator
@@ -95,6 +96,8 @@ final class AppModel: ObservableObject {
 
         let storedMaxDays = db.withLock { db in (try? db.getSetting("history_max_days")).flatMap { Int($0) } }
         self.historyMaxDays = min(max(storedMaxDays ?? 30, 1), 30)
+
+        self.ruleExpansionPreferences = db.withLock { db in RuleExpansionPreferences.load(from: db) }
 
         reloadFolders()
         startWatchingEnabledFolders()
@@ -228,6 +231,22 @@ final class AppModel: ObservableObject {
         ruleRunStats.first { $0.id == rule.id }
     }
 
+    func isRuleExpanded(_ rule: Rule) -> Bool {
+        ruleExpansionPreferences.isExpanded(rule)
+    }
+
+    func toggleRuleExpanded(_ rule: Rule) {
+        db.withLock { db in ruleExpansionPreferences.toggle(rule, in: db) }
+    }
+
+    private func clearRuleExpansionState(_ ruleId: String) {
+        db.withLock { db in ruleExpansionPreferences.clear(ruleId: ruleId, in: db) }
+    }
+
+    private func clearRuleExpansionState(_ ruleIds: Set<String>) {
+        db.withLock { db in ruleExpansionPreferences.clear(ruleIds: ruleIds, in: db) }
+    }
+
     var totalSuccessCount30d: Int { ruleRunStats.reduce(0) { $0 + $1.successCount } }
     var totalFailedCount30d: Int { ruleRunStats.reduce(0) { $0 + $1.failedCount } }
 
@@ -298,9 +317,62 @@ final class AppModel: ObservableObject {
     }
 
     func removeFolder(_ folder: WatchedFolder) {
+        let removedRuleIds = db.withLock { db in
+            Set(((try? db.listRules(folderId: folder.id)) ?? []).map(\.id))
+        }
         coordinator.remove(folder.path)
         db.withLock { db in try? db.deleteFolder(folder.id) }
+        clearRuleExpansionState(removedRuleIds)
         reloadFolders()
+    }
+
+    func updateFolderPath(_ folder: WatchedFolder, path: String) {
+        guard !isRunningNow && !isPreviewing else {
+            showNotice(
+                title: "Folder is busy",
+                message: "Wait for the current Run Now or Dry Run to finish before changing this watched folder."
+            )
+            return
+        }
+        guard !coordinator.isProcessing(in: folder.path) else {
+            showNotice(
+                title: "Folder is busy",
+                message: "Forel is still processing a file event in this watched folder. Try again once it finishes."
+            )
+            return
+        }
+
+        let normalizedPath = (path as NSString).standardizingPath
+        let oldPath = (folder.path as NSString).standardizingPath
+        guard normalizedPath != oldPath else { return }
+
+        if let existingFolder = folders.first(where: { existing in
+            existing.id != folder.id && (existing.path as NSString).standardizingPath == normalizedPath
+        }) {
+            selectedFolderId = existingFolder.id
+            detailRoute = .rules
+            reloadRules()
+            showNotice(
+                title: "Folder already watched",
+                message: "\"\((existingFolder.path as NSString).lastPathComponent)\" is already in your watched folders."
+            )
+            return
+        }
+
+        do {
+            try db.withLock { db in try db.updateFolderPath(folder.id, path: normalizedPath) }
+            if folder.enabled, !paused {
+                coordinator.remove(folder.path)
+                coordinator.add(normalizedPath)
+            }
+            reloadFolders()
+            reloadRules()
+            if historyFolderFilterId == folder.id {
+                reloadHistory()
+            }
+        } catch {
+            showError(error)
+        }
     }
 
     func toggleFolder(_ folder: WatchedFolder, enabled: Bool) {
@@ -336,6 +408,7 @@ final class AppModel: ObservableObject {
 
     func deleteRule(_ rule: Rule) {
         db.withLock { db in try? db.deleteRule(rule.id) }
+        clearRuleExpansionState(rule.id)
         reloadRules()
     }
 
