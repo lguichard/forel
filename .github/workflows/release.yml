@@ -14,13 +14,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Test artifact version (must start with v)"
-        required: true
-        default: "v0.0.0-ci-test"
-        type: string
 
 permissions:
   contents: write
@@ -119,16 +112,12 @@ jobs:
         env:
           RELEASE_ARCH: ${{ matrix.arch }}
           RELEASE_SUFFIX: ${{ matrix.suffix }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           set -euo pipefail
-          if [[ "$RELEASE_TAG" != v* ]]; then
-            echo "Release version must start with v: $RELEASE_TAG" >&2
-            exit 1
-          fi
           ./build.sh package "$RELEASE_ARCH" "$RELEASE_TAG" --sign --notarize
           echo "dmg_path=dist/release/Forel-${RELEASE_TAG}-${RELEASE_SUFFIX}.dmg" >> "$GITHUB_OUTPUT"
 
@@ -171,7 +160,6 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: github.event_name == 'push'
     needs: build
     runs-on: macos-14
     steps:
@@ -227,7 +215,6 @@ jobs:
           body: ${{ steps.notes.outputs.BODY }}
 
   homebrew:
-    if: github.event_name == 'push'
     needs: publish
     runs-on: macos-14
     steps:
