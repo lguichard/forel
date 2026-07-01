@@ -29,12 +29,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SectionLabel(title: "Appearance")
                     GlassCard {
-                        PickerRow(title: "Theme", selection: themeBinding) {
-                            Text("System").tag(AppTheme.system)
-                            Text("Light").tag(AppTheme.light)
-                            Text("Dark").tag(AppTheme.dark)
-                        }
-                        Divider().overlay(ForelTheme.divider).padding(.leading, 14)
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Accent color").font(.system(size: 13)).foregroundStyle(ForelTheme.primaryText)
                             AccentColorPicker(selection: accentBinding)
@@ -143,10 +137,6 @@ struct SettingsView: View {
 
     private var accentBinding: Binding<AccentPreset> {
         Binding(get: { model.accentPreset }, set: { model.setAccentPreset($0) })
-    }
-
-    private var themeBinding: Binding<AppTheme> {
-        Binding(get: { model.appTheme }, set: { model.setAppTheme($0) })
     }
 
     private var launchAtLoginBinding: Binding<Bool> {

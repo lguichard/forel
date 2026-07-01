@@ -110,6 +110,39 @@ import Foundation
         #expect(try db.listHistory()[0].status == .skipped)
     }
 
+    @Test func handleHonorsCompleteFilenameExclusionsCombinedWithRegex() throws {
+        let db = try makeDB()
+        let dir = TempDir()
+        let excluded = dir.file("Desktop.ini")
+        let included = dir.file("report.pdf")
+        let destination = dir.dir("Archive")
+        let folder = WatchedFolder(path: dir.path)
+        try db.insertFolder(folder)
+        var rule = makeRule(folderId: folder.id, name: "archive downloads")
+        rule.conditions = [
+            makeCondition(.name, .matchesRegex, #"^[^.]"#, ruleId: rule.id),
+            makeCondition(.name, .isNot, "Desktop.ini", ruleId: rule.id),
+        ]
+        rule.actions = [
+            makeAction(
+                .moveToFolder,
+                .object(["destination": .string(destination)]),
+                ruleId: rule.id
+            ),
+        ]
+        try db.insertRule(rule)
+
+        let coordinator = WatcherCoordinator(db: db)
+        coordinator.handle(path: excluded)
+        coordinator.handle(path: included)
+
+        #expect(FileManager.default.fileExists(atPath: excluded))
+        #expect(FileManager.default.fileExists(
+            atPath: (destination as NSString).appendingPathComponent("report.pdf")
+        ))
+        #expect(try db.listHistory().count == 1)
+    }
+
     @Test func processingStateIsSetWhileWatcherEventRuns() throws {
         let db = try makeDB()
         let dir = TempDir()

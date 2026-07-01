@@ -104,6 +104,44 @@ import Foundation
         #expect(matched == ["any contents-gated"])
     }
 
+    @Test func allConditionsCombineRegexWithCompleteFilenameExclusionsInPreviewAndRun() throws {
+        let dir = TempDir()
+        let destination = dir.dir("Processed")
+        let excluded = ["Desktop.ini", "Thumbs.db", "$RECYCLE.BIN"]
+        let included = dir.file("report.pdf")
+        let excludedPaths = excluded.map { dir.file($0) }
+        let rule = makeRule(
+            name: "move non-system files",
+            conditionMatch: .all,
+            conditions: [
+                makeCondition(.name, .matchesRegex, #"^[^.]"#),
+                makeCondition(.name, .isNot, "Desktop.ini"),
+                makeCondition(.name, .isNot, "Thumbs.db"),
+                makeCondition(.name, .isNot, "$RECYCLE.BIN"),
+            ],
+            actions: [makeAction(.moveToFolder, .object(["destination": .string(destination)]))]
+        )
+
+        #expect(RuleEngine.previewFile(path: included, depth: 0, rules: [rule]) != nil)
+        for path in excludedPaths {
+            #expect(RuleEngine.previewFile(path: path, depth: 0, rules: [rule]) == nil)
+        }
+
+        for path in excludedPaths {
+            let result = RuleEngine.run(path: path, depth: 0, rules: [rule], batchId: "excluded")
+            #expect(result.matched.isEmpty)
+            #expect(result.history.isEmpty)
+            #expect(FileManager.default.fileExists(atPath: path))
+        }
+
+        let includedResult = RuleEngine.run(path: included, depth: 0, rules: [rule], batchId: "included")
+        #expect(includedResult.matched == ["move non-system files"])
+        #expect(includedResult.history.count == 1)
+        #expect(FileManager.default.fileExists(
+            atPath: (destination as NSString).appendingPathComponent("report.pdf")
+        ))
+    }
+
     @Test func previewFileHidesAlreadyAppliedActions() throws {
         let dir = TempDir()
         let file = dir.file("photo.jpg", contents: "img")

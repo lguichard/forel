@@ -53,6 +53,24 @@ import Darwin
         #expect(ConditionEvaluator.evaluate(makeCondition(.contents, .contains, "paid"), path: textFile))
     }
 
+    @Test(arguments: [
+        ("Desktop.ini", "Desktop"),
+        ("report.pdf", "report"),
+        ("photo.JPG", "photo"),
+        ("archive.tar.gz", "archive.tar"),
+        ("$RECYCLE.BIN", "$RECYCLE"),
+    ])
+    func exactNameOperatorsAcceptStemOrCompleteFilename(filename: String, stem: String) {
+        let dir = TempDir()
+        let file = dir.file(filename)
+
+        #expect(ConditionEvaluator.evaluate(makeCondition(.name, .is, stem), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.name, .is, filename), path: file))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.name, .isNot, stem), path: file))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.name, .isNot, filename), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.name, .isNot, "different.name"), path: file))
+    }
+
     @Test func contentsConditionReadsFileAndMatchesEveryStringOperator() throws {
         let dir = TempDir()
         let file = dir.file("notes.txt", contents: "Alpha receipt\nTotal: 42 EUR\nPaid in full")
@@ -139,6 +157,18 @@ import Darwin
         #expect(!ConditionEvaluator.evaluate(makeCondition(.dateModified, .after, yesterday), path: file))
         #expect(ConditionEvaluator.evaluate(makeCondition(.dateModified, .olderThan, "1 week"), path: file))
         #expect(!ConditionEvaluator.evaluate(makeCondition(.dateModified, .withinLast, "1 week"), path: file))
+    }
+
+    @Test func createdAtConditionWithOlderThanHandlesOldFiles() throws {
+        let dir = TempDir()
+        let file = dir.file("test.png", contents: "image")
+        let tenDaysAgo = Date().addingTimeInterval(-10 * 24 * 60 * 60)
+        try FileManager.default.setAttributes([.creationDate: tenDaysAgo], ofItemAtPath: file)
+
+        #expect(ConditionEvaluator.evaluate(makeCondition(.createdAt, .olderThan, "3 days"), path: file))
+        #expect(ConditionEvaluator.evaluate(makeCondition(.createdAt, .olderThan, "1 week"), path: file))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.createdAt, .olderThan, "2 weeks"), path: file))
+        #expect(!ConditionEvaluator.evaluate(makeCondition(.createdAt, .withinLast, "3 days"), path: file))
     }
 
     @Test func kindConditionClassifiesAllPickerOptionsAndSupportsIsNot() throws {

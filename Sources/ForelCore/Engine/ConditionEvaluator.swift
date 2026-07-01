@@ -25,8 +25,7 @@ public enum ConditionEvaluator {
 
         switch condition.kind {
         case .name:
-            let name = url.deletingPathExtension().lastPathComponent
-            return matchString(condition.operator, name, condition.value)
+            return matchName(condition.operator, url: url, condition.value)
 
         case .extension_:
             let ext = url.pathExtension.lowercased()
@@ -292,6 +291,23 @@ public enum ConditionEvaluator {
             return re.firstMatch(in: haystack, range: NSRange(haystack.startIndex..., in: haystack)) != nil
         default:
             return false
+        }
+    }
+
+    /// Name conditions traditionally operate on the extensionless stem, but
+    /// exact comparisons also accept the complete filename. This keeps rules
+    /// such as `Name is invoice` working while allowing exclusions copied from
+    /// Finder, such as `Name is not Desktop.ini`, to compare the intended name.
+    private static func matchName(_ operator_: Operator, url: URL, _ needle: String) -> Bool {
+        let stem = url.deletingPathExtension().lastPathComponent
+        let fullName = url.lastPathComponent
+        switch operator_ {
+        case .is:
+            return stem == needle || fullName == needle
+        case .isNot:
+            return stem != needle && fullName != needle
+        default:
+            return matchString(operator_, stem, needle)
         }
     }
 

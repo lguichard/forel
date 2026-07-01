@@ -29,7 +29,9 @@ struct RuleListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            actionBar
+            if !model.rules.isEmpty {
+                actionBar
+            }
 
             if let runNowMessage = model.runNowMessage {
                 HStack(spacing: 6) {
@@ -160,18 +162,37 @@ struct RuleListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: model.selectedFolderId == nil ? "sidebar.left" : "list.bullet.rectangle")
-                .font(.system(size: 28))
-                .foregroundStyle(ForelTheme.secondaryText)
-            Text(model.selectedFolderId == nil ? "No folder selected" : "No rules yet")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(ForelTheme.primaryText)
-            Text(model.selectedFolderId == nil
-                 ? "Pick a folder on the left to see its rules."
-                 : "Create a rule to automate files in this folder.")
-                .font(.system(size: 11))
-                .foregroundStyle(ForelTheme.secondaryText)
-                .multilineTextAlignment(.center)
+            if model.selectedFolderId == nil {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 28))
+                    .foregroundStyle(ForelTheme.secondaryText)
+                Text("No folder selected")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(ForelTheme.primaryText)
+                Text("Pick a folder on the left to see its rules.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ForelTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+            } else {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 28))
+                    .foregroundStyle(ForelTheme.secondaryText)
+                Text("No rules yet")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(ForelTheme.primaryText)
+                Text("Create a rule to automate files in this folder.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(ForelTheme.secondaryText)
+                    .multilineTextAlignment(.center)
+                Button {
+                    guard let folderId = model.selectedFolderId else { return }
+                    editingRule = Rule(folderId: folderId, name: "New Rule")
+                } label: {
+                    Label("New Rule", systemImage: "plus")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.top, 8)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 50)

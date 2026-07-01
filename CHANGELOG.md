@@ -3,7 +3,22 @@
 All notable changes to Forel are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] - 2026-06-26
+## [Unreleased]
+
+### Changed
+- Removed the Light/Dark theme override from Settings; Forel now always follows the system appearance.
+- When no rules exist, the action bar is hidden and a centered "New Rule" button is shown in the empty state.
+- The "Clean file name" option in Rename actions now transliterates any script (Cyrillic, Arabic, CJK, German ß…) to a universal ASCII slug.
+
+## [1.0.4] - 2026-07-01
+
+### Changed
+- Release downloads are now signed with an Apple Developer ID certificate and notarized by Apple so macOS can verify their publisher.
+
+### Fixed
+- Fixed exact Name exclusions with file extensions being ignored when combined with other conditions.
+
+## [1.0.3] - 2026-06-22
 
 ### Added
 - Added grouped watcher notifications that summarize automatically applied rule actions without sending one alert per file, with a Settings toggle to turn them on or off.
@@ -11,6 +26,7 @@ All notable changes to Forel are documented here. Format loosely follows
 - Added the ability to change the path of an existing watched folder while keeping its rules.
 
 ## Fixed
+- Fixed the menu bar panel staying open after clicking elsewhere.
 - Fixed the automatic watcher potentially missing files when macOS reports dropped filesystem events by rescanning the affected folder while still skipping unchanged files.
 
 ## [1.0.2] - 2026-06-22

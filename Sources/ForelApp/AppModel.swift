@@ -45,7 +45,6 @@ final class AppModel: ObservableObject {
     @Published var alertTitle: String = "Error"
     @Published var errorMessage: String?
     @Published var detailRoute: DetailRoute = .rules
-    @Published var appTheme: AppTheme = .system
     @Published var accentPreset: AccentPreset = .default
     @Published var showDockIcon: Bool = true
     @Published var watcherNotificationsEnabled: Bool = true
@@ -97,9 +96,6 @@ final class AppModel: ObservableObject {
         let preset = storedAccent.flatMap(AccentPreset.init(rawValue:)) ?? .default
         self.accentPreset = preset
         ForelTheme.apply(preset)
-
-        let storedTheme = db.withLock { db in (try? db.getSetting("theme")) ?? nil }
-        self.appTheme = storedTheme.flatMap(AppTheme.init(rawValue:)) ?? .system
 
         let storedShowDockIcon = db.withLock { db in try? db.getSetting("show_dock_icon") }
         self.showDockIcon = storedShowDockIcon.map { $0 == "1" } ?? true
@@ -177,11 +173,6 @@ final class AppModel: ObservableObject {
         watcherNotificationTask?.cancel()
         watcherNotificationTask = nil
         pendingWatcherNotification = PendingWatcherNotification()
-    }
-
-    func setAppTheme(_ theme: AppTheme) {
-        appTheme = theme
-        db.withLock { db in try? db.setSetting("theme", theme.rawValue) }
     }
 
     func setAccentPreset(_ preset: AccentPreset) {

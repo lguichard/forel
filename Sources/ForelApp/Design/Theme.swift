@@ -17,18 +17,6 @@
 import SwiftUI
 import AppKit
 
-enum AppTheme: String, CaseIterable {
-    case system, light, dark
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-}
-
 /// Glass palette for the menu-bar quick panel and main window. Colours are
 /// dynamic so the user's Light/Dark/System setting can drive every view.
 @MainActor
