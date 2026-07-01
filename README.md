@@ -185,13 +185,15 @@ History / Undo (SQLite)
 - [x] Action history & undo
 - [x] Automatic updates
 - [x] Preferences: launch at login
-- [x] Shortcuts actions
 - [x] Drag & drop to reorder rules
 - [x] Rules based metadata files
 - [x] Activity logs
 - [x] Automatic cleaning database
 - [x] Uncompress actions
-- [ ] Archive / Unarchive actions
+- [x] Shortcuts actions
+- [ ] Export / Import rules
+- [ ] Toggle extension hidden / visible
+- [ ] Compress actions
 - [ ] Compress actions
 - [ ] Sync actions
 - [ ] Upload actions
