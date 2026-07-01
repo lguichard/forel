@@ -1318,16 +1318,25 @@ public enum ActionExecutor {
         return result
     }
 
-    /// Converts a filename to kebab-case: strips diacritics and special
-    /// characters, lowercases, replaces spaces and underscores with hyphens,
-    /// splits camelCase boundaries, and collapses adjacent hyphens.
+    /// Converts a filename to a universal ASCII slug: transliterates any
+    /// script to Latin (Cyrillic, Arabic, CJK…), strips diacritics,
+    /// lowercases, replaces spaces and underscores with hyphens, splits
+    /// camelCase boundaries, removes remaining non-alphanumeric characters,
+    /// and collapses adjacent hyphens.
     public static func cleanFileName(_ name: String) -> String {
         let nsName = name as NSString
         let ext = nsName.pathExtension
         let stem = ext.isEmpty ? (name as NSString).deletingPathExtension : nsName.deletingPathExtension
 
-        // Strip diacritics: "café" → "cafe"
-        var cleaned = stem.applyingTransform(.stripDiacritics, reverse: false) ?? stem
+        // Transliterate any script to Latin, then reduce to ASCII:
+        //   "straße" → "strasse",  "Привет" → "Privet",  "中文" → "zhong wen"
+        var cleaned = stem
+            .applyingTransform(.toLatin, reverse: false)
+            .map { (latin: String) -> String in
+                let mutable = NSMutableString(string: latin)
+                CFStringTransform(mutable, nil, "Latin-ASCII" as NSString, false)
+                return mutable as String
+            } ?? stem
 
         cleaned = cleaned
             .replacingOccurrences(of: " ", with: "-")
@@ -1347,7 +1356,7 @@ public enum ActionExecutor {
         cleaned = cleaned.lowercased()
 
         // Remove remaining characters that aren't alphanumeric or hyphens
-        cleaned = String(cleaned.filter { $0.isLetter || $0.isNumber || $0 == "-" })
+        cleaned = String(cleaned.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
 
         // Collapse and strip hyphens
         while cleaned.contains("--") { cleaned = cleaned.replacingOccurrences(of: "--", with: "-") }

@@ -8,6 +8,7 @@ All notable changes to Forel are documented here. Format loosely follows
 ### Changed
 - Removed the Light/Dark theme override from Settings; Forel now always follows the system appearance.
 - When no rules exist, the action bar is hidden and a centered "New Rule" button is shown in the empty state.
+- The "Clean file name" option in Rename actions now transliterates any script (Cyrillic, Arabic, CJK, German ß…) to a universal ASCII slug.
 
 ## [1.0.4] - 2026-07-01
 

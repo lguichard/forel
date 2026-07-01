@@ -195,6 +195,28 @@ import Foundation
         #expect(ActionExecutor.cleanFileName("MyCafé_Report (final)") == "my-cafe-report-final")
     }
 
+    @Test func cleanFileNameTransliteratesGermanSharpS() {
+        #expect(ActionExecutor.cleanFileName("straße") == "strasse")
+        #expect(ActionExecutor.cleanFileName("GROß") == "gross")
+    }
+
+    @Test func cleanFileNameTransliteratesCyrillic() {
+        #expect(ActionExecutor.cleanFileName("Привет") == "privet")
+        #expect(ActionExecutor.cleanFileName("Москва") == "moskva")
+    }
+
+    @Test func cleanFileNameTransliteratesChinese() {
+        #expect(ActionExecutor.cleanFileName("中文文件") == "zhong-wen-wen-jian")
+    }
+
+    @Test func cleanFileNameTransliteratesArabic() {
+        #expect(ActionExecutor.cleanFileName("مرحبا بالعالم") == "mrhba-balalm")
+    }
+
+    @Test func cleanFileNameTransliteratesMixedScripts() {
+        #expect(ActionExecutor.cleanFileName("Café München 中文.txt") == "cafe-munchen-zhong-wen.txt")
+    }
+
     @Test func cleanFileNameWithOptionRenamesFileCorrectly() throws {
         let dir = TempDir()
         let file = dir.file("Café Report.txt", contents: "hello")
