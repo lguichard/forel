@@ -5,6 +5,9 @@ All notable changes to Forel are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- About Forel panel now shows the app icon, name and version.
+
 ### Changed
 - Removed the Light/Dark theme override from Settings; Forel now always follows the system appearance.
 - When no rules exist, the action bar is hidden and a centered "New Rule" button is shown in the empty state.
